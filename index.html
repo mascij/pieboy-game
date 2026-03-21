@@ -29,6 +29,17 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const W = 800, H = 400;
+
+// Returns the first connected gamepad Phaser knows about, or null.
+// More reliable than getPad(0) which looks up by browser-assigned index.
+function _getActivePad(scene) {
+  const gp = scene.input && scene.input.gamepad;
+  if (!gp) return null;
+  const pads = gp.gamepads;
+  if (!pads) return null;
+  for (let i = 0; i < pads.length; i++) { if (pads[i]) return pads[i]; }
+  return null;
+}
 const GROUND_Y   = 340;
 const PLATFORM_Y = 250;
 const SEWER_Y    = 392;
@@ -422,6 +433,13 @@ class MenuScene extends Phaser.Scene {
       color:'#FFDD99', stroke:'#000', strokeThickness:3
     }).setOrigin(0.5).setDepth(5);
 
+    // Gamepad status — updates once controller is detected
+    this._padTxt = this.add.text(W/2, 393, '🎮 Press a controller button to connect', {
+      fontSize:'11px', fontFamily:'Gloomie Saturday',
+      color:'#888888', stroke:'#000', strokeThickness:2
+    }).setOrigin(0.5).setDepth(5);
+    this._padConnected = false;
+
     // ── Music — attempt autoplay; guaranteed to start on SPACE if browser blocked it
     const _startMusic = () => {
       const m = this.sound.get('music');
@@ -429,13 +447,40 @@ class MenuScene extends Phaser.Scene {
     };
     _startMusic();
 
-    this.input.keyboard.once('keydown-SPACE', () => {
-      _startMusic(); // ensure music is running if autoplay was blocked
-      this.cameras.main.fadeOut(400, 0, 0, 0);
-      this.cameras.main.once('camerafadeoutcomplete', () => {
-        this.scene.start('GameScene');
-      });
+    this._menuStarted = false;
+    this.input.keyboard.once('keydown-SPACE', () => this._startGame(_startMusic));
+
+    // Gamepad: b0 or b1 also starts the game
+    this._menuPadPrev = [false, false];
+  }
+
+  _startGame(_startMusic) {
+    if(this._menuStarted) return;
+    this._menuStarted = true;
+    _startMusic();
+    this.cameras.main.fadeOut(400, 0, 0, 0);
+    this.cameras.main.once('camerafadeoutcomplete', () => {
+      this.scene.start('GameScene');
     });
+  }
+
+  update() {
+    const pad = _getActivePad(this);
+    if(!pad) return;
+    // Update the connection indicator the first time we see the pad
+    if(!this._padConnected){
+      this._padConnected = true;
+      if(this._padTxt) this._padTxt.setText('🎮 Controller connected!').setColor('#00FF88');
+    }
+    const b0 = pad.isButtonDown(0);
+    const b1 = pad.isButtonDown(1);
+    if((b0 && !this._menuPadPrev[0]) || (b1 && !this._menuPadPrev[1])){
+      this._startGame(() => {
+        const m = this.sound.get('music');
+        if(!m || !m.isPlaying) this.sound.play('music', { loop:true, volume:0.6 });
+      });
+    }
+    this._menuPadPrev = [b0, b1];
   }
 }
 
@@ -459,6 +504,8 @@ class GameScene extends Phaser.Scene {
     this._nextSpawn  = 3000;
     this._attackCooldown = 0;
     this._iframes    = 0;
+    this._superMode  = false;
+    this._superEnd   = 0;
     this._crouching  = false;
     this._jumpsLeft  = 2;   // double-jump: 2 = both jumps available
     this._wasOnGround = true;
@@ -510,6 +557,7 @@ class GameScene extends Phaser.Scene {
     this._xKey = this.input.keyboard.addKey('X');
     this._cKey = this.input.keyboard.addKey('C');
     this._lKey = this.input.keyboard.addKey('L');
+    this._padPrev = [false, false, false, false]; // b0–b3 previous-frame state
 
     /* ── HUD ── */
     this._buildHUD();
@@ -622,6 +670,11 @@ class GameScene extends Phaser.Scene {
     const dt = delta/1000;
 
     this.gameSpeed = Math.min(500, 220 + Math.floor(this.score/2000)*60);
+    if(this._superMode){
+      this.gameSpeed = Math.min(750, Math.floor(this.gameSpeed * 1.5));
+      // Expire super mode
+      if(time > this._superEnd) this._endSuper();
+    }
 
     this._scrollBg(this.gameSpeed, dt);
     this._scrollTiles(this._gTiles, this.gameSpeed, dt);
@@ -658,9 +711,20 @@ class GameScene extends Phaser.Scene {
     if(onGround && !this._wasOnGround) this._jumpsLeft = 2;
     this._wasOnGround = onGround;
 
+    // Gamepad helper (b0=jump, b1=jump, b2=burp, b3=melee)
+    const pad = _getActivePad(this);
+    const _padJust = (n) => {
+      if(!pad) return false;
+      const pressed = pad.isButtonDown(n);
+      if(pressed && !this._padPrev[n]){ this._padPrev[n] = true;  return true; }
+      if(!pressed)                     { this._padPrev[n] = false; }
+      return false;
+    };
+
     // Jump / Double-jump — use JustDown so each press only counts once
     const jumpPressed = Phaser.Input.Keyboard.JustDown(keys.space) ||
-                        Phaser.Input.Keyboard.JustDown(keys.up);
+                        Phaser.Input.Keyboard.JustDown(keys.up)    ||
+                        _padJust(0) || _padJust(1);
     if(jumpPressed && this._jumpsLeft > 0 && !this._crouching) {
       // Second jump is slightly weaker for a satisfying "flutter" feel
       const vel = this._jumpsLeft === 2 ? -560 : -480;
@@ -686,14 +750,14 @@ class GameScene extends Phaser.Scene {
       p.setAlpha(1);
     }
 
-    // Melee attack (X)
-    if(Phaser.Input.Keyboard.JustDown(this._xKey) && time > this._attackCooldown) {
+    // Melee attack (X or b3)
+    if((Phaser.Input.Keyboard.JustDown(this._xKey) || _padJust(3)) && time > this._attackCooldown) {
       this._attackCooldown = time+400;
       this._doMelee(time);
     }
 
-    // Ranged attack (C)
-    if(Phaser.Input.Keyboard.JustDown(this._cKey) && time > this._attackCooldown) {
+    // Ranged attack (C or b2)
+    if((Phaser.Input.Keyboard.JustDown(this._cKey) || _padJust(2)) && time > this._attackCooldown) {
       this._attackCooldown = time+500;
       this._fireBurp(p.x+30, p.y);
     }
@@ -793,7 +857,7 @@ class GameScene extends Phaser.Scene {
       const busLeft = d.sprite.x - BUS_HALFW;
       const pRight  = this._player.x + 18;  // player hitbox right edge
       const pLeft   = this._player.x - 18;
-      if(pRight > busLeft && pLeft < busLeft + 30 && this._player.y > BUS_TOP + 20) {
+      if(!this._superMode && pRight > busLeft && pLeft < busLeft + 30 && this._player.y > BUS_TOP + 20) {
         this._takeDamage();
       }
     });
@@ -839,6 +903,46 @@ class GameScene extends Phaser.Scene {
       onComplete:()=>gap.destroy() });
   }
 
+  /* ────────────── Super Mode ─────────────── */
+  _startSuper() {
+    this._superMode = true;
+    this._superEnd  = this.time.now + 6000;
+
+    // Grow Pie Boy to boss size
+    this._player.setScale(3);
+    this._player.body.setSize(36, 38); // keep hitbox original so physics stays solid
+
+    // Cycle through rainbow tints using a repeating timer
+    const TINTS = [0xFF0000, 0xFF8800, 0xFFFF00, 0x00FF00, 0x00FFFF, 0x8800FF, 0xFF00FF];
+    let ti = 0;
+    this._superTimer = this.time.addEvent({
+      delay: 80, loop: true,
+      callback: () => {
+        if(!this._superMode) return;
+        this._player.setTint(TINTS[ti % TINTS.length]);
+        ti++;
+      }
+    });
+
+    // Banner + shake
+    this._floatBig(W/2, H/2 - 20, '⭐ SUPER PIE BOY! ⭐', '#FFD700', 34);
+    this.cameras.main.shake(200, 0.015);
+
+    // Warning at 4.5s
+    this.time.delayedCall(4500, () => {
+      if(this._superMode) this._floatBig(W/2, H/2, 'Hurry! Fading soon...', '#FF6600', 20);
+    });
+  }
+
+  _endSuper() {
+    this._superMode = false;
+    if(this._superTimer){ this._superTimer.remove(); this._superTimer = null; }
+    this._player.clearTint();
+    this._player.setScale(1);
+    this._player.body.setSize(36, 38);
+    this._floatBig(W/2, H/2, 'Back to normal...', '#AAAAAA', 18);
+  }
+
   /* ────────────── Enemies ─────────────── */
   _handleEnemies(time, dt) {
     if(time > this._nextEnemy) {
@@ -861,6 +965,7 @@ class GameScene extends Phaser.Scene {
   }
 
   _hitByEnemy(player, enemy) {
+    if(this._superMode){ this._killEnemy(enemy); return; }
     if(this.time.now < this._iframes) return;
     this._takeDamage();
   }
@@ -890,14 +995,18 @@ class GameScene extends Phaser.Scene {
       item.txt.x -= this.gameSpeed * dt;
       if(item.txt.x < -40){ item.txt.destroy(); return false; }
 
-      // Manual proximity collision
-      if(Math.abs(item.txt.x - p.x) < 36 && Math.abs(item.txt.y - p.y) < 44){
+      // Manual proximity collision — generous hitbox so collection feels natural
+      const dx = Math.abs(item.txt.x - p.x), dy = Math.abs(item.txt.y - p.y);
+      if(dx < 70 && dy < 70){
+        console.log(`[Pickup] type=${item.type} dx=${Math.round(dx)} dy=${Math.round(dy)}`);
         item.collected = true;
         const ix = item.txt.x, iy = item.txt.y;
         item.txt.destroy();
         if(item.type === 'key'){
           this._addScore(25);
-          this._floatBig(ix, iy, GAME_TEXT.keyScore, '#FFD700', 18);
+          console.log('[Super] calling _startSuper');
+          this._startSuper();
+          console.log('[Super] done, _superMode=', this._superMode);
         } else {
           const pts = GAME_TEXT.foodPts[item.type] || 50;
           this.health = Math.min(3, this.health + 1);
@@ -915,7 +1024,8 @@ class GameScene extends Phaser.Scene {
     this._lastPickup = time;
     if(Math.random() < 0.5){
       const x = W + 16;
-      const y = Phaser.Math.Between(100, 220);
+      // Spawn in reachable range: ground level jump (260) to a normal hop (200)
+      const y = Phaser.Math.Between(200, 290);
       const roll = Math.random();
       const type = roll < 0.25 ? 'key' : FOOD_TYPES[Math.floor(Math.random()*3)];
       const emoji = type === 'key' ? '🔑' : FOOD_EMOJI[type];
@@ -1018,6 +1128,7 @@ class GameScene extends Phaser.Scene {
 
   _gameOver() {
     this.over = true;
+    if(this._superMode) this._endSuper();
     this.physics.pause();
     this.cameras.main.flash(500,255,0,0);
     this.time.delayedCall(1200,()=>{
@@ -1230,20 +1341,36 @@ class GameOverScene extends Phaser.Scene {
       this.tweens.add({ targets:o, alpha:1, duration:200, delay:300 + i*35 });
     });
 
-    // Show retry prompt after board fades in, then enable SPACE
+    // Show retry prompt after board fades in, then enable SPACE + gamepad
+    this._canRetry = false;
+    this._retryPadPrev = [false, false];
     this.tweens.add({ targets:this._retryTxt, alpha:1, duration:400,
       delay:300 + allObjs.length*35 + 200,
       onComplete:() => {
         this.tweens.add({ targets:this._retryTxt, alpha:0, duration:600, yoyo:true, repeat:-1 });
-        this.input.keyboard.once('keydown-SPACE', () => {
-          this.cameras.main.fadeOut(400,0,0,0);
-          this.cameras.main.once('camerafadeoutcomplete', () => {
-            this.scene.stop('GameOverScene');
-            this.scene.start('GameScene');
-          });
-        });
+        this._canRetry = true;
+        this.input.keyboard.once('keydown-SPACE', () => this._doRetry());
       }
     });
+  }
+
+  _doRetry() {
+    if(!this._canRetry) return;
+    this._canRetry = false;
+    this.cameras.main.fadeOut(400,0,0,0);
+    this.cameras.main.once('camerafadeoutcomplete', () => {
+      this.scene.stop('GameOverScene');
+      this.scene.start('GameScene');
+    });
+  }
+
+  update() {
+    const pad = _getActivePad(this);
+    if(!pad || !this._canRetry) return;
+    const b0 = pad.isButtonDown(0);
+    const b1 = pad.isButtonDown(1);
+    if((b0 && !this._retryPadPrev[0]) || (b1 && !this._retryPadPrev[1])) this._doRetry();
+    this._retryPadPrev = [b0, b1];
   }
 }
 
@@ -1256,6 +1383,7 @@ function _launchGame() {
     type: Phaser.AUTO,
     width: W, height: H,
     backgroundColor: '#87CEEB',
+    input: { gamepad: true },
     physics: {
       default: 'arcade',
       arcade: { gravity:{ y:900 }, debug:false }
