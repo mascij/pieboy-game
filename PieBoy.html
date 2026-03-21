@@ -1,0 +1,1272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>🥧 Pie Boy: The Great Boston Escape</title>
+  <style>
+    @font-face {
+      font-family: 'Gloomie Saturday';
+      src: url('assets/Gloomie Saturday.otf') format('opentype');
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a0a2e;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      font-family: 'Gloomie Saturday', 'Courier New', monospace;
+    }
+  </style>
+</head>
+<body>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   PIE BOY: THE GREAT BOSTON ESCAPE
+   A Phaser 3 endless runner — all phases implemented.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const W = 800, H = 400;
+const GROUND_Y   = 340;
+const PLATFORM_Y = 250;
+const SEWER_Y    = 392;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   📝 LOG-TO-FILE SYSTEM
+   Press  L  during gameplay to download pieboy_log.txt.
+   All console.log / warn / error output is captured automatically.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const _LOG = [];
+const _con = { log: console.log.bind(console), warn: console.warn.bind(console), error: console.error.bind(console) };
+console.log   = (...a) => { _LOG.push(`[LOG]   ${new Date().toISOString()}  ${a.join(' ')}`); _con.log(...a);   };
+console.warn  = (...a) => { _LOG.push(`[WARN]  ${new Date().toISOString()}  ${a.join(' ')}`); _con.warn(...a);  };
+console.error = (...a) => { _LOG.push(`[ERROR] ${new Date().toISOString()}  ${a.join(' ')}`); _con.error(...a); };
+function _downloadLogs() {
+  const blob = new Blob([_LOG.join('\n')], { type: 'text/plain' });
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob),
+    download: `pieboy_log_${Date.now()}.txt`
+  });
+  a.click(); URL.revokeObjectURL(a.href);
+  _con.log('Logs downloaded.');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ✏️  GAME TEXT — change any string here without touching game logic
+   ═══════════════════════════════════════════════════════════════════════════ */
+const GAME_TEXT = {
+  // ── Menu screen ──────────────────────────────────────────────────────────
+  title:        '🥧 PIE BOY',
+  subtitle:     'The Great Boston Escape',
+  controls:     'SPACE / ↑  Jump     ↓  Crouch     X  Fork Attack     C  Creamy Burp',
+  startPrompt:  '▶   PRESS SPACE TO START   ◀',
+
+  // ── In-game ──────────────────────────────────────────────────────────────
+  intro:        "Don't let them eat you, Pie Boy!",
+  speedUpMsgs:  ['Hurry Up, Pie Boy! 🏃', 'Be Careful, Pie Boy! ⚠️', 'You Can Do It, Pie Boy! 💪'],
+  bossDefeated: '🏆 +500  BOSS DOWN!',
+  killScore:    '+100',
+  keyScore:     '🔑 Got a Key!  +25',
+  foodMsgs: {
+    cupcake: '🧁 Cupcake!  +50  Healed!',
+    cookie:  '🍪 Cookie!  +30  Healed!',
+    donut:   '🍩 Donut!  +40  Healed!',
+  },
+  foodPts: { cupcake: 50, cookie: 30, donut: 40 },
+  hudControls:  'SPACE/↑=Jump   ↓=Crouch   X=Fork   C=Burp   L=Log',
+
+  // ── Game over ────────────────────────────────────────────────────────────
+  gameOver:     'GAME OVER',
+  gameOverSub:  'They got Pie Boy...',
+  retryPrompt:  '▶   PRESS SPACE TO TRY AGAIN   ◀',
+};
+
+/* ──────────────────────────────────────────────────────────────────────────
+   BOOT SCENE — generates all textures programmatically (no image files needed)
+   ────────────────────────────────────────────────────────────────────────── */
+class BootScene extends Phaser.Scene {
+  constructor() { super('BootScene'); }
+
+  // ── Drop your image files into an assets/ folder next to PieBoy.html,
+  //    then uncomment each line below.  The game will use your art automatically;
+  //    any key you don't load here keeps its placeholder shape.
+  preload() {
+    // CHARACTER
+    // this.load.image('pie_boy',      'assets/pie_boy.png');       // 48×42
+    // this.load.image('mini_pie',     'assets/mini_pie.png');      // 22×18
+
+    // ENEMIES
+    // this.load.image('enemy_person', 'assets/enemy_person.png');  // 32×58
+    // this.load.image('boss_giant',   'assets/boss_giant.png');    // 96×140
+
+    // PICKUPS
+    // this.load.image('pickup_food',  'assets/pickup_food.png');   // 28×30
+    // this.load.image('pickup_key',   'assets/pickup_key.png');    // 28×24
+    // this.load.image('burp',         'assets/burp.png');          // 28×16
+
+    // BACKGROUNDS  (each repeats horizontally — must tile seamlessly left↔right)
+    this.load.image('bg_far',       'assets/bg_far.png');        // 800×400
+    this.load.image('bg_mid',       'assets/bg_mid.png');        // 900×400
+    this.load.image('bg_fore',      'assets/bg_fore.png');       // 800×400
+
+    // GROUND TILES  (these tile edge-to-edge, so left/right edges must match)
+    // this.load.image('ground_tile',  'assets/ground_tile.png');   // 32×32
+    // this.load.image('sewer_tile',   'assets/sewer_tile.png');    // 32×32
+
+    // PLATFORMS
+    this.load.image('truck',        'assets/bus.png');            // 247×68
+
+    // HUD
+    // this.load.image('heart_full',   'assets/heart_full.png');    // 22×20
+    // this.load.image('heart_empty',  'assets/heart_empty.png');   // 22×20
+
+    // LOGO BANNER  (shown at top of menu — swap with your own art!)
+     this.load.image('logo_banner',  'assets/logo_banner.png');   // 800×160
+
+    // MENU BACKGROUND  (full backdrop behind the menu — swap with your own art!)
+     this.load.image('menu_bg',      'assets/menu_bg.png');       // 800×400
+
+    // MUSIC  (loops through splash screen and gameplay)
+    this.load.audio('music', 'assets/pieboy-music.mp3');
+  }
+
+  create() {
+    this._pieBoy();
+    this._enemy();
+    this._boss();
+    this._pickupKey();
+    this._pickupFood();
+    this._backgrounds();
+    this._miniPie();
+    this._burp();
+    this._hearts();
+    this._groundTile();
+    this._sewerTile();
+    this._truck();
+    this._logoBanner();
+    this._menuBg();
+    this.scene.start('MenuScene');
+  }
+
+  _g(key, w, h, fn) {
+    // Skip placeholder generation if a real image was already loaded in preload()
+    if (this.textures.exists(key)) return;
+    const g = this.make.graphics({ x:0, y:0, add:false });
+    fn(g);
+    g.generateTexture(key, w, h);
+    g.destroy();
+  }
+
+  _pieBoy() {
+    this._g('pie_boy', 48, 42, g => {
+      g.fillStyle(0xD2691E); g.fillEllipse(24, 24, 44, 36);
+      g.fillStyle(0xF4A460); g.fillEllipse(24, 14, 44, 16);
+      g.fillStyle(0x1a0a00); g.fillCircle(18, 21, 3); g.fillCircle(30, 21, 3);
+      g.lineStyle(2, 0x1a0a00); g.beginPath();
+      g.arc(24, 24, 6, 0.3, Math.PI - 0.3, false); g.strokePath();
+      // Fork arm (left)
+      g.fillStyle(0xC0C0C0);
+      g.fillRect(2, 22, 4, 14);
+      [0,2,4].forEach(dx => g.fillRect(2+dx, 19, 2, 4));
+      // Knife arm (right)
+      g.fillRect(42, 22, 4, 14);
+      g.fillStyle(0x888888); g.fillTriangle(42,19, 46,19, 44,13);
+    });
+  }
+
+  _enemy() {
+    this._g('enemy_person', 32, 58, g => {
+      g.fillStyle(0xFFDBAC); g.fillCircle(16, 10, 10);
+      g.fillStyle(0xFF4500); g.fillRect(8, 20, 16, 22);
+      g.fillStyle(0x2244AA); g.fillRect(8,42,7,16); g.fillRect(17,42,7,16);
+      g.fillStyle(0xFFDBAC); g.fillRect(0,20,8,7); g.fillRect(24,20,8,7);
+      g.fillStyle(0x880000); g.fillRect(9,12,14,6);
+      g.fillStyle(0xFFFFFF); [9,13,17].forEach(x => g.fillRect(x,12,3,4));
+      g.fillStyle(0x333333); g.fillCircle(12,7,2); g.fillCircle(20,7,2);
+    });
+  }
+
+  _boss() {
+    this._g('boss_giant', 96, 140, g => {
+      g.fillStyle(0xFFDBAC); g.fillCircle(48, 28, 28);
+      g.fillStyle(0x990000); g.fillRect(18, 52, 60, 56);
+      g.fillStyle(0x111166); g.fillRect(18,108,26,32); g.fillRect(52,108,26,32);
+      g.fillStyle(0xFFDBAC); g.fillRect(0,52,18,18); g.fillRect(78,52,18,18);
+      g.fillStyle(0x660000); g.fillRect(22,32,52,16);
+      g.fillStyle(0xFFFFFF); [22,30,38,46,54,62].forEach(x=>g.fillRect(x,32,6,10));
+      g.fillStyle(0xFF0000); g.fillCircle(34,20,8); g.fillCircle(62,20,8);
+      g.fillStyle(0x000000); g.fillCircle(34,20,4); g.fillCircle(62,20,4);
+      // Health pips (3 dots above head — shown as stars)
+      g.fillStyle(0xFFFFFF); [32,48,64].forEach(x=>g.fillCircle(x,4,3));
+    });
+  }
+
+  _pickupKey() {
+    this._g('pickup_key', 28, 24, g => {
+      g.fillStyle(0xFFD700); g.fillCircle(10,10,8);
+      g.fillStyle(0xDAA520); g.fillRect(15,7,12,6); g.fillRect(22,13,4,5); g.fillRect(16,13,4,5);
+    });
+  }
+
+  _pickupFood() {
+    this._g('pickup_food', 28, 30, g => {
+      g.fillStyle(0xA0522D); g.fillRect(4,18,20,12);
+      g.fillStyle(0xFF69B4); g.fillEllipse(14,16,26,18);
+      g.fillStyle(0xFFFF00); g.fillRect(8,9,4,2);
+      g.fillStyle(0x00FF00); g.fillRect(16,11,4,2);
+      g.fillStyle(0xFF4444); g.fillRect(12,7,4,2);
+    });
+  }
+
+  _backgrounds() {
+    // bg_far — skyline (800×400, full height; artwork sits in lower portion, transparent above)
+    this._g('bg_far', 800, 400, g => {
+      // Sky fill covers the whole canvas (this is the base layer)
+      g.fillStyle(0x0d0b2a); g.fillRect(0,0,800,400);
+      // Building silhouettes — shifted +180px down from original to match canvas position
+      g.fillStyle(0x1a1850);
+      [[0,260,60,120],[60,280,40,100],[100,240,35,140],[135,268,50,112],
+       [185,230,40,150],[225,258,65,122],[290,220,32,160],[322,248,52,132],
+       [374,234,38,146],[412,262,48,118],[460,224,44,156],[504,252,58,128],
+       [562,228,36,152],[598,258,52,122],[650,218,48,162],[698,248,42,132],
+       [740,232,60,148]].forEach(([x,y,w,h])=>g.fillRect(x,y,w,h));
+      // Stars in upper sky
+      g.fillStyle(0xFFFFFF,0.8);
+      for(let i=0;i<40;i++) g.fillCircle(Math.random()*800,Math.random()*200,1);
+    });
+
+    // bg_mid — Charlestown row houses (900×400, transparent above houses)
+    this._g('bg_mid', 900, 400, g => {
+      // Houses shifted +200px down from original to match canvas position
+      const cols=[0xB44A2A,0x8B3A2A,0xC45A3A,0xA44020];
+      for(let i=0;i<6;i++){
+        const x=i*140;
+        g.fillStyle(cols[i%4]); g.fillRect(x+10,260,120,140);
+        g.fillStyle(0x222222); g.fillTriangle(x+10,260,x+130,260,x+70,230);
+        g.fillStyle(0xFFFF88,0.85);
+        [[25,280],[75,280],[25,318],[75,318]].forEach(([dx,dy])=>g.fillRect(x+dx,dy,22,20));
+        g.fillStyle(0x3A1800); g.fillRect(x+49,352,24,48);
+      }
+    });
+
+    // bg_fore — sidewalk strip (800×400, transparent above; artwork at very bottom)
+    this._g('bg_fore', 800, 400, g => {
+      // Sidewalk shifted to y=340 to match canvas position (GROUND_Y)
+      g.fillStyle(0x777777); g.fillRect(0,340,800,60);
+      g.fillStyle(0x888888); for(let x=0;x<800;x+=80) g.fillRect(x,340,4,60);
+      g.fillStyle(0x555555); g.fillRect(0,340,800,4);
+    });
+  }
+
+  _miniPie() {
+    this._g('mini_pie', 22, 18, g => {
+      g.fillStyle(0xD2691E); g.fillEllipse(11,11,20,16);
+      g.fillStyle(0xF4A460); g.fillEllipse(11,6,20,8);
+      g.fillStyle(0x1a0a00); g.fillCircle(8,10,1.5); g.fillCircle(14,10,1.5);
+    });
+  }
+
+  _burp() {
+    this._g('burp', 28, 16, g => {
+      g.fillStyle(0xFFFAF0,0.92); g.fillEllipse(14,8,28,16);
+      g.fillStyle(0xFFFFFF); g.fillCircle(14,8,4);
+      g.lineStyle(1,0xDDEEAA,0.8); g.strokeEllipse(14,8,28,16);
+    });
+  }
+
+  _hearts() {
+    this._g('heart_full', 22, 20, g => {
+      g.fillStyle(0xFF1744);
+      g.fillCircle(7,7,6); g.fillCircle(15,7,6);
+      g.fillTriangle(1,9,21,9,11,20);
+    });
+    this._g('heart_empty', 22, 20, g => {
+      g.lineStyle(2,0xFF1744);
+      g.strokeCircle(7,7,6); g.strokeCircle(15,7,6);
+      g.beginPath(); g.moveTo(1,9); g.lineTo(21,9); g.lineTo(11,20);
+      g.closePath(); g.strokePath();
+    });
+  }
+
+  _groundTile() {
+    this._g('ground_tile', 32, 32, g => {
+      g.fillStyle(0x5C4033); g.fillRect(0,0,32,32);
+      g.fillStyle(0x7A6040); g.fillRect(0,0,32,8);
+      g.lineStyle(1,0x3A2010,0.5); g.strokeRect(0,0,32,32);
+    });
+    this._g('sewer_tile', 32, 32, g => {
+      g.fillStyle(0x1A4A1A); g.fillRect(0,0,32,32);
+      g.fillStyle(0x2A6A2A); g.fillRect(0,0,32,8);
+      // no border stroke — was causing a green line at canvas bottom
+    });
+  }
+
+  _sewerTile() {
+    // Generate a tiny transparent pixel texture used for invisible physics bodies
+    this._g('pixel', 2, 2, g => { g.fillStyle(0xFFFFFF, 0.01); g.fillRect(0,0,2,2); });
+  }
+
+  _logoBanner() {
+    this._g('logo_banner', 800, 160, g => {
+      // Dark pill-shaped background — full width
+      g.fillStyle(0x1a0a2e, 0.92); g.fillRoundedRect(0, 0, 800, 160, 0);
+      g.lineStyle(3, 0xFFD700, 0.9); g.strokeRoundedRect(1, 1, 798, 158, 0);
+      // Inner glow strip
+      g.fillStyle(0xFF6600, 0.18); g.fillRoundedRect(8, 8, 784, 50, 12);
+      // Pie icon (left, vertically centred in top half)
+      g.fillStyle(0xD2691E); g.fillCircle(60, 55, 32);
+      g.fillStyle(0xF4A460); g.fillEllipse(60, 34, 60, 18);
+      // Fork + knife
+      g.fillStyle(0xC0C0C0);
+      g.fillRect(32, 36, 5, 34); [0,3,6].forEach(dx=>g.fillRect(32+dx,33,3,7));
+      g.fillRect(82, 36, 5, 34);
+      g.fillStyle(0x888888); g.fillTriangle(82,33,87,33,84,24);
+      // "PIE BOY" lettering placeholder — amber bars across wider canvas
+      g.fillStyle(0xFFD700);
+      [[115,28,80,22],[206,28,58,22],[276,28,65,22],[354,28,90,22],[460,28,48,22],[520,28,35,22],[568,28,70,22]].forEach(([x,y,w,h])=>g.fillRect(x,y,w,h));
+      // Subtitle bar row
+      g.fillStyle(0xFF9933, 0.7);
+      [[115,60,200,10],[328,60,160,10],[502,60,90,10],[606,60,60,10]].forEach(([x,y,w,h])=>g.fillRect(x,y,w,h));
+      // Bottom tagline area
+      g.fillStyle(0xFFFFFF, 0.10); g.fillRoundedRect(80, 92, 640, 52, 10);
+      g.fillStyle(0xFF9933, 0.5);
+      [[130,104,400,10],[180,122,300,10]].forEach(([x,y,w,h])=>g.fillRect(x,y,w,h));
+    });
+  }
+
+  _menuBg() {
+    this._g('menu_bg', 800, 400, g => {
+      // Sky — deep navy top to midnight blue bottom
+      g.fillGradientStyle(0x080620, 0x080620, 0x0d1a3a, 0x0d1a3a, 1);
+      g.fillRect(0, 0, 800, 400);
+      // Stars
+      g.fillStyle(0xFFFFFF, 0.9);
+      [[40,18],[120,35],[195,22],[280,50],[370,28],[430,42],[520,15],[600,38],[680,22],[755,50],
+       [88,65],[165,78],[310,62],[490,72],[640,58],[720,80],[22,90],[250,88],[560,95]
+      ].forEach(([x,y]) => g.fillRect(x, y, 2, 2));
+      // Distant skyline silhouette
+      g.fillStyle(0x141e38);
+      [[0,180,55,160],[48,158,42,182],[84,172,35,178],[112,148,52,202],[157,165,65,195],
+       [215,138,38,222],[246,158,55,202],[294,148,48,212],[335,162,52,198],[380,142,46,218],
+       [418,168,44,192],[455,150,62,210],[510,135,48,225],[552,162,46,198],[590,148,58,212],
+       [640,155,55,205],[688,142,48,218],[728,158,52,202],[772,165,28,195]
+      ].forEach(([x,y,w,h]) => g.fillRect(x, y, w, h));
+      // Mid-ground row houses
+      g.fillStyle(0x1c2a50);
+      [[0,230,48,170],[42,218,52,182],[88,234,44,166],[126,222,56,178],[175,232,48,168],
+       [216,210,62,190],[271,226,52,174],[316,220,54,180],[363,230,48,170],[404,216,64,184],
+       [461,228,52,172],[506,222,46,178],[545,212,58,188],[596,232,54,168],[643,220,52,180],
+       [688,228,58,172],[740,216,60,184]
+      ].forEach(([x,y,w,h]) => g.fillRect(x, y, w, h));
+      // Lit windows
+      g.fillStyle(0xFFE080, 0.7);
+      [[10,240,8,10],[55,228,8,10],[98,242,8,10],[136,230,8,10],[185,240,8,10],
+       [226,218,8,10],[282,234,8,10],[328,228,8,10],[374,238,8,10],[416,224,8,10],
+       [472,236,8,10],[518,230,8,10],[556,220,8,10],[608,240,8,10],[655,228,8,10],
+       [700,236,8,10],[752,224,8,10]
+      ].forEach(([x,y,w,h]) => g.fillRect(x, y, w, h));
+      // Ground
+      g.fillStyle(0x0d0f1e); g.fillRect(0, 355, 800, 45);
+      g.fillStyle(0x1a1c30); g.fillRect(0, 355, 800, 5);
+    });
+  }
+
+  _truck() {
+    this._g('truck', 247, 68, g => {
+      g.fillStyle(0x4682B4); g.fillRect(0,14,92,44);
+      g.fillStyle(0x1E4A8A); g.fillRect(88,2,32,56);
+      g.fillStyle(0xADD8E6,0.8); g.fillRect(92,7,24,18);
+      // wheels
+      [22,66,102].forEach(x=>{
+        g.fillStyle(0x111111); g.fillCircle(x,58,12);
+        g.fillStyle(0x888888); g.fillCircle(x,58,6);
+      });
+      // side label
+      g.fillStyle(0xFFFFFF,0.6); g.fillRect(10,20,70,12);
+    });
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   MENU SCENE
+   ────────────────────────────────────────────────────────────────────────── */
+class MenuScene extends Phaser.Scene {
+  constructor() { super('MenuScene'); }
+
+  create() {
+    // ── Menu background — swap assets/menu_bg.png (800×400) with your own art ──
+    this.add.image(0, 0, 'menu_bg').setOrigin(0, 0).setDepth(0);
+
+    // ── Logo banner (full-width) — swap assets/logo_banner.png (800×160) ─────
+    const banner = this.add.image(W/2, 80, 'logo_banner').setDepth(5);
+    this.tweens.add({ targets: banner, y: 86, duration: 1800,
+      yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+
+    // Pie Boy preview (bouncing)
+    const hero = this.add.image(W/2, 230, 'pie_boy').setScale(2.6).setDepth(5);
+    this.tweens.add({ targets: hero, y: 238, duration: 900,
+      yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+
+    const go = this.add.text(W/2, 338, GAME_TEXT.startPrompt, {
+      fontSize:'26px', fontFamily:'Gloomie Saturday',
+      color:'#FFFFFF', stroke:'#FF6600', strokeThickness:5
+    }).setOrigin(0.5).setDepth(5);
+
+    this.tweens.add({ targets: go, alpha: 0, duration: 550, yoyo: true, repeat: -1 });
+
+    // Controls hint
+    this.add.text(W/2, 375, GAME_TEXT.controls, {
+      fontSize:'13px', fontFamily:'Gloomie Saturday',
+      color:'#FFDD99', stroke:'#000', strokeThickness:3
+    }).setOrigin(0.5).setDepth(5);
+
+    // ── Music — attempt autoplay; guaranteed to start on SPACE if browser blocked it
+    const _startMusic = () => {
+      const m = this.sound.get('music');
+      if (!m || !m.isPlaying) this.sound.play('music', { loop: true, volume: 0.6 });
+    };
+    _startMusic();
+
+    this.input.keyboard.once('keydown-SPACE', () => {
+      _startMusic(); // ensure music is running if autoplay was blocked
+      this.cameras.main.fadeOut(400, 0, 0, 0);
+      this.cameras.main.once('camerafadeoutcomplete', () => {
+        this.scene.start('GameScene');
+      });
+    });
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   GAME SCENE — main gameplay
+   ────────────────────────────────────────────────────────────────────────── */
+class GameScene extends Phaser.Scene {
+  constructor() { super('GameScene'); }
+
+  create() {
+    this.score       = 0;
+    this.health      = 3;
+    this.gameSpeed   = 220;
+    this.over        = false;
+    this.bossActive  = false;
+    this.lastBossAt  = 0;
+    this._lastPickup = 0;
+    this._lastEnemy  = 0;
+    this._nextEnemy  = 2000;
+    this._lastSpawn  = 0;
+    this._nextSpawn  = 3000;
+    this._attackCooldown = 0;
+    this._iframes    = 0;
+    this._crouching  = false;
+    this._jumpsLeft  = 2;   // double-jump: 2 = both jumps available
+    this._wasOnGround = true;
+    this._scoreLastMilestone = 0;  // tracks last 500-pt milestone crossed
+
+    /* ── Background ── */
+    this._buildBg();
+
+    /* ── Ground physics (invisible — visuals are in bg_fore) ── */
+    this._groundGroup = this.physics.add.staticGroup();
+    this._sewerGroup  = this.physics.add.staticGroup();
+    const gFloor = this._groundGroup.create(W/2, GROUND_Y+4, 'pixel');
+    gFloor.setDisplaySize(W*4, 8).setAlpha(0).refreshBody();
+    const sFloor = this._sewerGroup.create(W/2, SEWER_Y+4, 'pixel');
+    sFloor.setDisplaySize(W*4, 8).setAlpha(0).refreshBody();
+    this._gTiles = [];
+    this._sTiles = [];
+
+    /* ── Player ── */
+    this._player = this.physics.add.sprite(120, GROUND_Y-20, 'pie_boy')
+      .setCollideWorldBounds(true).setDepth(10);
+    this._player.body.setSize(36, 38);
+
+    /* ── Platforms group (trucks) ── */
+    this._platforms = this.physics.add.staticGroup();
+
+    /* ── Pickups (emoji text objects, managed manually) ── */
+    this._pickupItems = [];   // { txt, type, collected }
+
+    /* ── Enemies group ── */
+    this._enemies = this.physics.add.group();
+
+    /* ── Projectiles group ── */
+    this._projectiles = this.physics.add.group({ maxSize:20 });
+
+    /* ── Melee hit area (visual only) ── */
+    this._meleeGfx = this.add.graphics().setDepth(11);
+
+    /* ── Colliders ── */
+    this.physics.add.collider(this._player, this._groundGroup);
+    this.physics.add.collider(this._player, this._sewerGroup);
+    this.physics.add.collider(this._player, this._platforms);
+    this.physics.add.collider(this._projectiles, this._groundGroup, (p)=>p.destroy());
+
+    this.physics.add.overlap(this._player, this._enemies,   this._hitByEnemy, null, this);
+
+    /* ── Input ── */
+    this._keys = this.input.keyboard.createCursorKeys();
+    this._xKey = this.input.keyboard.addKey('X');
+    this._cKey = this.input.keyboard.addKey('C');
+    this._lKey = this.input.keyboard.addKey('L');
+
+    /* ── HUD ── */
+    this._buildHUD();
+
+    /* ── Score ticker ── */
+    this.time.addEvent({ delay:100, loop:true, callback:()=>{ if(!this.over) this._addScore(1); }});
+
+    /* ── Camera ── */
+    this.cameras.main.fadeIn(500,0,0,0);
+
+    /* ── Intro message ── */
+    const msg = this.add.text(W/2, H/2-10, GAME_TEXT.intro, {
+      fontSize:'40px', fontFamily:'Gloomie Saturday',
+      color:'#FFD700', stroke:'#000', strokeThickness:4
+    }).setOrigin(0.5).setDepth(30);
+    this.tweens.add({ targets:msg, alpha:0, delay:2000, duration:800, onComplete:()=>msg.destroy() });
+
+    /* ── Boss ── */
+    this._boss = null;
+    this._bossHealth = 0;
+    this._bossDir = -1;
+    this._bossExitTime = 0;
+
+    // Reset these every create() — class fields are NOT re-initialized on scene restart
+    this._truckData    = [];
+  }
+
+  /* ────────────── Background layers ─────────────── */
+  _buildBg() {
+    const sky = this.add.graphics().setDepth(-1);
+    sky.fillGradientStyle(0x0d0b2a,0x0d0b2a,0x5599CC,0x5599CC,1);
+    sky.fillRect(0,0,W,H);
+
+    this._far  = [this.add.image(0,0,'bg_far').setOrigin(0,0).setDepth(0),
+                   this.add.image(800,0,'bg_far').setOrigin(0,0).setDepth(0)];
+    this._mid  = [this.add.image(0,0,'bg_mid').setOrigin(0,0).setDepth(1),
+                   this.add.image(900,0,'bg_mid').setOrigin(0,0).setDepth(1)];
+    this._fore = [this.add.image(0,0,'bg_fore').setOrigin(0,0).setDepth(2),
+                   this.add.image(800,0,'bg_fore').setOrigin(0,0).setDepth(2)];
+  }
+
+  _scrollBg(speed, dt) {
+    const scroll = (imgs, rate, wrap) => imgs.forEach(i=>{ i.x -= speed*rate*dt; if(i.x<=-wrap) i.x+=wrap*2; });
+    scroll(this._far,  0.15, 800);
+    scroll(this._mid,  0.35, 900);
+    scroll(this._fore, 0.70, 800);
+  }
+
+  /* ────────────── Ground tile row ─────────────── */
+  _buildTileRow(key, cy, group) {
+    const tiles = [];
+    const count = Math.ceil(W/32)+2;
+    for(let i=0;i<count;i++){
+      const t = group.create(i*32+16, cy, key);
+      t.setImmovable(true).setDepth(5).refreshBody();
+      tiles.push(t);
+    }
+    return tiles;
+  }
+
+  _scrollTiles(tiles, speed, dt) {
+    const dist = speed*dt;
+    const wrap = tiles.length*32;
+    tiles.forEach(t=>{ t.x-=dist; if(t.x<-16) t.x+=wrap; t.refreshBody(); });
+  }
+
+  /* ────────────── HUD ─────────────── */
+  _buildHUD() {
+    // Top bar background
+    this.add.graphics().fillStyle(0, 0.55).fillRect(0, 0, W, 46).setDepth(40);
+
+    // Hearts (left side)
+    this._heartImgs = [];
+    for(let i = 0; i < 3; i++) {
+      this._heartImgs.push(this.add.image(22 + i*30, 23, 'heart_full').setDepth(50));
+    }
+
+    // ── Score (center, prominent) ────────────────────────────────────────────
+    // Dark pill behind score so it pops over any background
+    this._scoreBg = this.add.graphics().setDepth(49);
+    this._drawScoreBg();
+
+    this._scoreTxt = this.add.text(W/2, 8, '0', {
+      fontSize:'31px', fontFamily:'Gloomie Saturday',
+      color:'#FFD700', stroke:'#000', strokeThickness:5,
+      shadow:{ offsetX:2, offsetY:2, color:'#FF6600', blur:0, fill:true }
+    }).setOrigin(0.5, 0).setDepth(50);
+
+    // Controls hint (bottom strip)
+    this.add.text(W/2, H-5, GAME_TEXT.hudControls, {
+      fontSize:'18px', fontFamily:'Gloomie Saturday',
+      color:'#888', stroke:'#000', strokeThickness:2
+    }).setOrigin(0.5, 1).setDepth(50);
+  }
+
+  _drawScoreBg() {
+    this._scoreBg.clear();
+    this._scoreBg.fillStyle(0x000000, 0.45);
+    this._scoreBg.fillRoundedRect(W/2 - 72, 4, 144, 32, 8);
+  }
+
+  _updateHUD() {
+    this._heartImgs.forEach((h, i) => h.setTexture(i < this.health ? 'heart_full' : 'heart_empty'));
+    this._scoreTxt.setText(this.score.toLocaleString());
+  }
+
+  /* ────────────── Main update ─────────────── */
+  update(time, delta) {
+    if(this.over) return;
+    const dt = delta/1000;
+
+    this.gameSpeed = Math.min(500, 220 + Math.floor(this.score/2000)*60);
+
+    this._scrollBg(this.gameSpeed, dt);
+    this._scrollTiles(this._gTiles, this.gameSpeed, dt);
+    this._scrollTiles(this._sTiles, this.gameSpeed, dt);
+
+    this._handlePlayer(time, dt);
+    this._handleObstacles(time, dt);
+    this._handleEnemies(time, dt);
+    this._handleProjectiles(dt);
+    this._handlePickups(time, dt);
+    this._handleBoss(time, dt);
+    this._updateHUD();
+    this._checkBossTrigger();
+
+    if(this._meleeActive && time > this._meleeEndTime) {
+      this._meleeActive = false;
+      this._meleeGfx.clear();
+    }
+
+    // L key → download log file
+    if(Phaser.Input.Keyboard.JustDown(this._lKey)) {
+      console.log(`[Log] Manual download triggered. Score=${this.score}, Health=${this.health}`);
+      _downloadLogs();
+    }
+  }
+
+  /* ────────────── Player input / physics ─────────────── */
+  _handlePlayer(time, dt) {
+    const p   = this._player;
+    const keys = this._keys;
+    const onGround = p.body.blocked.down;
+
+    // Refill jumps on landing
+    if(onGround && !this._wasOnGround) this._jumpsLeft = 2;
+    this._wasOnGround = onGround;
+
+    // Jump / Double-jump — use JustDown so each press only counts once
+    const jumpPressed = Phaser.Input.Keyboard.JustDown(keys.space) ||
+                        Phaser.Input.Keyboard.JustDown(keys.up);
+    if(jumpPressed && this._jumpsLeft > 0 && !this._crouching) {
+      // Second jump is slightly weaker for a satisfying "flutter" feel
+      const vel = this._jumpsLeft === 2 ? -560 : -480;
+      p.setVelocityY(vel);
+      this._jumpsLeft--;
+      console.log(`[Player] Jump! jumpsLeft=${this._jumpsLeft}`);
+    }
+
+    // Crouch (ground only)
+    if(keys.down.isDown && onGround) {
+      this._crouch(true);
+    } else if(!keys.down.isDown && this._crouching) {
+      this._crouch(false);
+    }
+
+    // Tilt on jump
+    p.setAngle(onGround ? 0 : (p.body.velocity.y<0 ? -15 : 10));
+
+    // I-frames flash
+    if(time < this._iframes) {
+      p.setAlpha(Math.sin(time*0.025)>0 ? 1 : 0.3);
+    } else {
+      p.setAlpha(1);
+    }
+
+    // Melee attack (X)
+    if(Phaser.Input.Keyboard.JustDown(this._xKey) && time > this._attackCooldown) {
+      this._attackCooldown = time+400;
+      this._doMelee(time);
+    }
+
+    // Ranged attack (C)
+    if(Phaser.Input.Keyboard.JustDown(this._cKey) && time > this._attackCooldown) {
+      this._attackCooldown = time+500;
+      this._fireBurp(p.x+30, p.y);
+    }
+  }
+
+  _crouch(on) {
+    this._crouching = on;
+    this._player.body.setSize(36, on ? 20 : 38);
+    this._player.setScale(1, on ? 0.55 : 1);
+  }
+
+  /* ────────────── Melee ─────────────── */
+  _doMelee(time) {
+    const p = this._player;
+    this._meleeActive  = true;
+    this._meleeEndTime = time+220;
+
+    // Draw fork slash
+    const g = this._meleeGfx;
+    g.clear();
+    g.fillStyle(0xFFD700,0.7); g.fillRect(p.x+18,p.y-22,48,22);
+    g.fillStyle(0xC0C0C0,0.9); g.fillRect(p.x+20,p.y-20,44,14);
+
+    // Check enemy hits
+    const zone = new Phaser.Geom.Rectangle(p.x+18, p.y-22, 60, 40);
+    this._enemies.children.each(e=>{
+      if(!e.active) return;
+      const er = new Phaser.Geom.Rectangle(e.x-16, e.y-28, 32, 56);
+      if(Phaser.Geom.Intersects.RectangleToRectangle(zone, er)) this._killEnemy(e);
+    });
+
+    // Boss melee hit
+    if(this._boss && this._boss.active) {
+      const br = new Phaser.Geom.Rectangle(this._boss.x-48, this._boss.y-70, 96, 140);
+      if(Phaser.Geom.Intersects.RectangleToRectangle(zone, br)) this._damageBoss();
+    }
+  }
+
+  /* ────────────── Ranged ─────────────── */
+  _fireBurp(x, y) {
+    // Create burp projectile directly (more reliable than group.get() for physics bodies)
+    const b = this.physics.add.image(x, y, 'burp').setDepth(12);
+    b.body.allowGravity = false;
+    b.setVelocity(480, -50);
+    this._projectiles.add(b); // add to group so the ground collider catches it
+    this.time.delayedCall(1600, ()=>{ if(b&&b.active) b.destroy(); });
+
+    // Projectile vs enemy
+    this.physics.add.overlap(b, this._enemies, (proj, enemy)=>{
+      proj.destroy(); this._killEnemy(enemy);
+    });
+    // Projectile vs boss
+    if(this._boss && this._boss.active) {
+      this.physics.add.overlap(b, this._boss, (proj)=>{
+        proj.destroy(); this._damageBoss();
+      });
+    }
+  }
+
+  /* ────────────── Obstacles (trucks / sewer gaps) ─────────────── */
+  _truckData = [];
+
+  _handleObstacles(time, dt) {
+    if(time > this._nextSpawn) {
+      this._nextSpawn = time + Phaser.Math.Between(2200,4500);
+      // No buses before 2000pts; chance ramps up every 2000pts after that
+      const truckChance = this.score < 2000 ? 0 :
+                          this.score < 4000 ? 0.20 :
+                          this.score < 6000 ? 0.40 : 0.60;
+      (truckChance > 0 && Math.random() < truckChance) ? this._spawnTruck() : this._spawnGap();
+    }
+
+    // Scroll truck visuals + platform bodies
+    const BUS_TOP  = GROUND_Y - 4 - 68;  // 268 — visual top of bus
+    const BUS_HALFW = 123;               // half of 247px bus width
+    this._truckData.forEach(d=>{
+      d.sprite.x -= this.gameSpeed*dt;
+      d.platform.x = d.sprite.x;
+      d.platform.refreshBody();
+      // Move bus food (emoji text) and check player collection
+      if(d.food && !d.food.collected){
+        d.food.txt.x = d.sprite.x;
+        const p = this._player;
+        if(Math.abs(d.food.txt.x - p.x) < 36 && Math.abs(d.food.txt.y - p.y) < 44){
+          d.food.collected = true;
+          const ix = d.food.txt.x, iy = d.food.txt.y;
+          d.food.txt.destroy();
+          const pts = GAME_TEXT.foodPts[d.food.type] || 50;
+          this.health = Math.min(3, this.health + 1);
+          this._addScore(pts);
+          this._floatBig(ix, iy, GAME_TEXT.foodMsgs[d.food.type], '#FF69B4', 18);
+          this._updateHUD();
+        }
+      }
+      // Front-face damage: only when the bus's LEFT EDGE crosses the player
+      // and the player is at ground level (not standing on top of the bus)
+      const busLeft = d.sprite.x - BUS_HALFW;
+      const pRight  = this._player.x + 18;  // player hitbox right edge
+      const pLeft   = this._player.x - 18;
+      if(pRight > busLeft && pLeft < busLeft + 30 && this._player.y > BUS_TOP + 20) {
+        this._takeDamage();
+      }
+    });
+
+    this._truckData = this._truckData.filter(d=>{
+      if(d.sprite.x < -160){
+        d.sprite.destroy();
+        this._platforms.remove(d.platform,true,true);
+        if(d.food && !d.food.collected) d.food.txt.destroy();
+        return false;
+      }
+      return true;
+    });
+  }
+
+  _spawnTruck() {
+    const x      = W+124;             // start fully off-screen (bus is 247px wide)
+    const busTopY = GROUND_Y - 4 - 68; // 268 — visual roof of bus
+    const sprite = this.add.image(x, GROUND_Y-4,'truck').setOrigin(0.5,1).setDepth(5);
+    // Platform surface aligned to visual bus roof
+    const plat = this._platforms.create(x, busTopY + 5, 'pixel')
+      .setAlpha(0).setVisible(false);
+    plat.body.setSize(230, 10);
+    plat.setImmovable(true);
+    plat.refreshBody();
+
+    let food = null;
+    if(Math.random()<0.4){
+      const FOOD_TYPES = ['cupcake','cookie','donut'];
+      const FOOD_EMOJI = { cupcake:'🧁', cookie:'🍪', donut:'🍩' };
+      const type = FOOD_TYPES[Math.floor(Math.random()*3)];
+      const txt = this.add.text(x, busTopY - 18, FOOD_EMOJI[type], { fontSize:'28px' })
+        .setOrigin(0.5).setDepth(6);
+      food = { txt, type, collected: false };
+    }
+    this._truckData.push({sprite,platform:plat,food});
+  }
+
+  _spawnGap() {
+    const gap = this.add.rectangle(W+40, GROUND_Y+10, 90, 14, 0x080808).setDepth(3);
+    this.tweens.add({ targets:gap, x:-90,
+      duration:(W+90)/this.gameSpeed*1000*0.95,
+      onComplete:()=>gap.destroy() });
+  }
+
+  /* ────────────── Enemies ─────────────── */
+  _handleEnemies(time, dt) {
+    if(time > this._nextEnemy) {
+      this._nextEnemy = time + Phaser.Math.Between(1600, 3500);
+      this._spawnEnemy();
+    }
+    this._enemies.children.each(e=>{
+      if(!e.active) return;
+      e.x -= (this.gameSpeed + e.getData('speed')) * dt;
+      if(e.x < -50) this._enemies.remove(e,true,true);
+    });
+  }
+
+  _spawnEnemy() {
+    const e = this._enemies.create(W+20, GROUND_Y-28,'enemy_person');
+    e.setDepth(8);
+    e.body.allowGravity = false;
+    e.setData('speed', Phaser.Math.Between(20,70));
+    this.tweens.add({targets:e, y:GROUND_Y-36, duration:380+Math.random()*280, yoyo:true, repeat:-1});
+  }
+
+  _hitByEnemy(player, enemy) {
+    if(this.time.now < this._iframes) return;
+    this._takeDamage();
+  }
+
+  _killEnemy(e) {
+    const {x,y} = e;
+    this._enemies.remove(e,true,true);
+    this._addScore(100);
+    this._floatBig(x, y-22, GAME_TEXT.killScore, '#00FF88', 22);
+    this._miniPiePop(x, y);
+  }
+
+  /* ────────────── Projectiles cleanup ─────────────── */
+  _handleProjectiles(dt) {
+    this._projectiles.children.each(p=>{ if(p.active&&p.x>W+20) p.destroy(); });
+  }
+
+  /* ────────────── Pickups (emoji text, manual collision) ─────────────── */
+  _handlePickups(time, dt) {
+    const p  = this._player;
+    const FOOD_TYPES = ['cupcake', 'cookie', 'donut'];
+    const FOOD_EMOJI = { cupcake:'🧁', cookie:'🍪', donut:'🍩' };
+
+    // Scroll + collect existing pickups
+    this._pickupItems = this._pickupItems.filter(item => {
+      if(item.collected){ item.txt.destroy(); return false; }
+      item.txt.x -= this.gameSpeed * dt;
+      if(item.txt.x < -40){ item.txt.destroy(); return false; }
+
+      // Manual proximity collision
+      if(Math.abs(item.txt.x - p.x) < 36 && Math.abs(item.txt.y - p.y) < 44){
+        item.collected = true;
+        const ix = item.txt.x, iy = item.txt.y;
+        item.txt.destroy();
+        if(item.type === 'key'){
+          this._addScore(25);
+          this._floatBig(ix, iy, GAME_TEXT.keyScore, '#FFD700', 18);
+        } else {
+          const pts = GAME_TEXT.foodPts[item.type] || 50;
+          this.health = Math.min(3, this.health + 1);
+          this._addScore(pts);
+          this._floatBig(ix, iy, GAME_TEXT.foodMsgs[item.type], '#FF69B4', 18);
+        }
+        this._updateHUD();
+        return false;
+      }
+      return true;
+    });
+
+    // Spawn new pickup
+    if(time - this._lastPickup < 3200) return;
+    this._lastPickup = time;
+    if(Math.random() < 0.5){
+      const x = W + 16;
+      const y = Phaser.Math.Between(100, 220);
+      const roll = Math.random();
+      const type = roll < 0.25 ? 'key' : FOOD_TYPES[Math.floor(Math.random()*3)];
+      const emoji = type === 'key' ? '🔑' : FOOD_EMOJI[type];
+      const txt = this.add.text(x, y, emoji, { fontSize:'28px' })
+        .setOrigin(0.5).setDepth(6);
+      this._pickupItems.push({ txt, type, collected: false });
+    }
+  }
+
+
+  /* ────────────── Boss ─────────────── */
+  _checkBossTrigger() {
+    if(!this.bossActive && this.score>0 &&
+       Math.floor(this.score/2000)>Math.floor(this.lastBossAt/2000)){
+      this.lastBossAt = this.score;
+      this._spawnBoss();
+    }
+  }
+
+  _spawnBoss() {
+    if(this._boss && this._boss.active) return;
+    this.bossActive  = true;
+    this._bossHealth = 3;
+    this._boss = this.physics.add.image(W+48, GROUND_Y-70,'boss_giant')
+      .setDepth(9);
+    this._boss.body.allowGravity = false;
+    this._boss.body.setSize(80,132);
+    this._bossDir = -1;
+    this._bossExitTime = this.time.now + 13000;
+
+    this.physics.add.overlap(this._player, this._boss,
+      ()=>this._takeDamage(), null, this);
+
+    this.cameras.main.shake(300,0.012);
+  }
+
+  _handleBoss(time, dt) {
+    if(!this._boss || !this._boss.active) return;
+    // Use body.reset() to move a dynamic physics body — direct .x assignment gets
+    // overwritten by the physics engine on the next step.
+    const newX = this._boss.x + this._bossDir * 85 * dt;
+    this._boss.body.reset(newX, this._boss.y);
+    if(this._boss.x < 280) { this._bossDir =  1; console.log('[Boss] direction → right'); }
+    if(this._boss.x > 680) { this._bossDir = -1; console.log('[Boss] direction → left'); }
+    if(time > this._bossExitTime) {
+      console.log('[Boss] Auto-exit timer fired');
+      this._exitBoss('fled');
+    }
+  }
+
+  _damageBoss() {
+    // Guard: might be called by an overlap callback after exit has already started
+    if(!this._boss || !this._boss.active) {
+      console.warn('[Boss] _damageBoss called but boss already gone — ignoring');
+      return;
+    }
+    this._bossHealth--;
+    console.log(`[Boss] Hit! Health remaining: ${this._bossHealth}`);
+    this.cameras.main.shake(140,0.006);
+    this._float(this._boss.x, this._boss.y-88,'💥 Hit!','#FF6600');
+    if(this._bossHealth<=0) this._exitBoss('defeated');
+  }
+
+  _exitBoss(reason) {
+    if(!this._boss || !this._boss.active) {
+      console.warn(`[Boss] _exitBoss(${reason}) called but boss already null/inactive`);
+      return;
+    }
+    console.log(`[Boss] Exiting — reason: ${reason}`);
+    if(reason==='defeated'){
+      this._addScore(500);
+      this._floatBig(this._boss.x, this._boss.y-110, GAME_TEXT.bossDefeated, '#FFD700', 26);
+      this.cameras.main.flash(400,255,165,0);
+      this._miniPiePop(this._boss.x, this._boss.y-30);
+    }
+    // ── Disable physics IMMEDIATELY so overlap callbacks stop firing ──────────
+    this._boss.body.enable = false;
+    // ── Null out this._boss NOW so no other frame can interact with it ─────────
+    const dyingBoss = this._boss;
+    this._boss      = null;
+    this.bossActive = false;
+    // ── Tween the visual off screen, then clean up the game object ────────────
+    this.tweens.add({ targets: dyingBoss, x: W+120, alpha: 0, duration: 800,
+      onComplete: () => {
+        console.log('[Boss] Exit tween complete — destroying game object');
+        if(dyingBoss && dyingBoss.scene) dyingBoss.destroy();
+      }
+    });
+  }
+
+  /* ────────────── Damage / game-over ─────────────── */
+  _takeDamage() {
+    const now = this.time.now;
+    if(now < this._iframes) return;
+    this.health = Math.max(0, this.health-1);
+    this._iframes = now+1000;
+    this.cameras.main.shake(200,0.008);
+    if(this.health<=0) this._gameOver();
+  }
+
+  _gameOver() {
+    this.over = true;
+    this.physics.pause();
+    this.cameras.main.flash(500,255,0,0);
+    this.time.delayedCall(1200,()=>{
+      this.scene.start('GameOverScene',{score:this.score});
+    });
+  }
+
+  /* ────────────── Helpers ─────────────── */
+  _addScore(n) {
+    const prev = this.score;
+    this.score += n;
+    // 500-pt visual milestone (pulse + flash)
+    const prevMile = Math.floor(prev / 500);
+    const newMile  = Math.floor(this.score / 500);
+    if(newMile > prevMile) this._scoreMilestone(newMile);
+    // 2000-pt Pie Boy encouragement banner
+    const prevMajor = Math.floor(prev / 2000);
+    const newMajor  = Math.floor(this.score / 2000);
+    if(newMajor > prevMajor && newMajor > 0) this._majorMilestone(newMajor);
+  }
+
+  _scoreMilestone(level) {
+    console.log(`[Score] Milestone reached: ${level * 500}`);
+    const colors   = [0xFFD700, 0xFF8C00, 0xFF1493, 0x00BFFF, 0x39FF14];
+    const [r,g,b]  = [ (colors[level%5]>>16)&0xFF, (colors[level%5]>>8)&0xFF, colors[level%5]&0xFF ];
+
+    // Score text pulse — grow and glow
+    this.tweens.add({
+      targets: this._scoreTxt,
+      scaleX: 1.7, scaleY: 1.7,
+      duration: 110, yoyo: true, repeat: 3,
+      ease: 'Sine.InOut'
+    });
+
+    // Screen flash in milestone colour
+    this.cameras.main.flash(350, r, g, b, false);
+
+    // Big floating milestone banner
+    const pts = (level * 500).toLocaleString();
+    this._floatBig(W/2, H/2 - 30, `🎉 ${pts} PTS!`, '#FFD700', 32);
+  }
+
+  _majorMilestone(level) {
+    // Cycling Pie Boy encouragement at every 2000-pt block
+    const msgs = GAME_TEXT.speedUpMsgs;
+    const msg  = msgs[(level - 1) % msgs.length];
+    this._floatBig(W/2, H/2 + 30, msg, '#FF6600', 26);
+  }
+
+  // Small floating score pop (kills, small events)
+  _float(x, y, msg, color='#FFF') {
+    const t = this.add.text(x, y, msg, {
+      fontSize:'15px', fontFamily:'Gloomie Saturday',
+      color, stroke:'#000', strokeThickness:3
+    }).setOrigin(0.5).setDepth(30);
+    this.tweens.add({ targets:t, y:y-58, alpha:0, duration:1000,
+      onComplete:()=>t.destroy() });
+  }
+
+  // Large floating score pop (enemy kills, pickups, boss hits)
+  _floatBig(x, y, msg, color='#FFF', size=24) {
+    const t = this.add.text(x, y, msg, {
+      fontSize:`${size}px`, fontFamily:'Gloomie Saturday',
+      color, stroke:'#000', strokeThickness: size > 24 ? 6 : 4,
+      shadow:{ offsetX:2, offsetY:2, color:'#FF6600', blur:0, fill:true }
+    }).setOrigin(0.5).setDepth(31);
+    // Hold visible for 2s, then fade out over 0.8s (same as intro message)
+    this.tweens.add({
+      targets: t, alpha: 0,
+      delay: 2000, duration: 800, ease: 'Cubic.In',
+      onComplete: () => t.destroy()
+    });
+  }
+
+  _miniPiePop(x, y) {
+    const pie = this.add.image(x, y, 'mini_pie').setDepth(16).setScale(1.3);
+    this.tweens.add({ targets:pie, y:y-85, alpha:0, scale:2,
+      duration:950, ease:'Cubic.Out', onComplete:()=>pie.destroy() });
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   GAME OVER SCENE  — name entry → leaderboard → retry
+   ────────────────────────────────────────────────────────────────────────── */
+class GameOverScene extends Phaser.Scene {
+  constructor() { super('GameOverScene'); }
+  init(d) { this.finalScore = d.score || 0; }
+
+  create() {
+    this._playerName = '';
+    this._state = 'name'; // 'name' | 'board'
+    this._cursorOn = true;
+
+    // Dark overlay
+    this.add.graphics().fillStyle(0, 0.88).fillRect(0, 0, W, H);
+
+    // GAME OVER header
+    this.add.text(W/2, 30, GAME_TEXT.gameOver, {
+      fontSize:'58px', fontFamily:'Gloomie Saturday',
+      color:'#FF1744', stroke:'#000', strokeThickness:8
+    }).setOrigin(0.5);
+
+    this.add.text(W/2, 96, GAME_TEXT.gameOverSub, {
+      fontSize:'14px', fontFamily:'Gloomie Saturday',
+      color:'#FFCCCC', stroke:'#000', strokeThickness:3
+    }).setOrigin(0.5);
+
+    // Final score
+    this.add.text(W/2, 122, 'FINAL SCORE', {
+      fontSize:'11px', fontFamily:'Gloomie Saturday',
+      color:'#FF9900', stroke:'#000', strokeThickness:2
+    }).setOrigin(0.5);
+    this.add.text(W/2, 148, this.finalScore.toLocaleString(), {
+      fontSize:'36px', fontFamily:'Gloomie Saturday',
+      color:'#FFD700', stroke:'#000', strokeThickness:6,
+      shadow:{ offsetX:3, offsetY:3, color:'#FF6600', blur:0, fill:true }
+    }).setOrigin(0.5);
+
+    // ── Name entry ──────────────────────────────────────────────────────────
+    this._namePrompt = this.add.text(W/2, 195, 'ENTER YOUR NAME  (press ENTER to confirm)', {
+      fontSize:'11px', fontFamily:'Gloomie Saturday',
+      color:'#CCCCCC', stroke:'#000', strokeThickness:2
+    }).setOrigin(0.5);
+
+    this._nameTxt = this.add.text(W/2, 225, '|', {
+      fontSize:'28px', fontFamily:'Gloomie Saturday',
+      color:'#FFD700', stroke:'#000', strokeThickness:4
+    }).setOrigin(0.5);
+
+    // Blinking cursor
+    this.time.addEvent({ delay:500, loop:true, callback:()=>{
+      this._cursorOn = !this._cursorOn;
+      if(this._state === 'name') this._refreshName();
+    }});
+
+    // Retry prompt (shown after board appears)
+    this._retryTxt = this.add.text(W/2, 388, GAME_TEXT.retryPrompt, {
+      fontSize:'18px', fontFamily:'Gloomie Saturday',
+      color:'#FFF', stroke:'#FF6600', strokeThickness:4
+    }).setOrigin(0.5).setAlpha(0);
+
+    this.input.keyboard.on('keydown', this._onKey, this);
+    this.cameras.main.fadeIn(500, 0, 0, 0);
+  }
+
+  _refreshName() {
+    this._nameTxt.setText(this._playerName + (this._cursorOn ? '|' : ' '));
+  }
+
+  _onKey(evt) {
+    if(this._state !== 'name') return;
+    if(evt.key === 'Enter')     { this._submit(); return; }
+    if(evt.key === 'Backspace') { this._playerName = this._playerName.slice(0,-1); }
+    else if(evt.key.length === 1 && this._playerName.length < 12) {
+      this._playerName += evt.key.toUpperCase();
+    }
+    this._refreshName();
+  }
+
+  _submit() {
+    if(this._state !== 'name') return;
+    this._state = 'board';
+    const name = this._playerName.trim() || 'ANON';
+
+    // Save to leaderboard
+    let board = [];
+    try { board = JSON.parse(localStorage.getItem('pieboy_lb') || '[]'); } catch(e){}
+    board.push({ name, score: this.finalScore });
+    board.sort((a,b) => b.score - a.score);
+    board = board.slice(0, 10);
+    localStorage.setItem('pieboy_lb', JSON.stringify(board));
+    const myRank = board.findIndex(e => e.name === name && e.score === this.finalScore);
+
+    // Fade out name entry
+    this.tweens.add({ targets:[this._namePrompt, this._nameTxt], alpha:0, duration:250 });
+
+    // ── Build leaderboard ──────────────────────────────────────────────────
+    const medals = ['🥇','🥈','🥉'];
+    const allObjs = [];
+
+    const title = this.add.text(W/2, 188, '🏆  LEADERBOARD  🏆', {
+      fontSize:'15px', fontFamily:'Gloomie Saturday',
+      color:'#FFD700', stroke:'#000', strokeThickness:3
+    }).setOrigin(0.5).setAlpha(0);
+    allObjs.push(title);
+
+    board.forEach((e, i) => {
+      const y = 210 + i * 18;
+      const isMe = (i === myRank);
+      const col = isMe ? '#FFD700' : i < 3 ? '#FFA040' : '#DDDDDD';
+
+      // Highlight bar behind player's row
+      if(isMe) {
+        const bar = this.add.rectangle(W/2, y, 420, 16, 0xFFD700, 0.15).setAlpha(0);
+        allObjs.push(bar);
+      }
+
+      const rank = i < 3 ? medals[i] : `${i+1}.`;
+      const nameStr = e.name.substring(0,12).padEnd(12,' ');
+      const row = this.add.text(W/2, y,
+        `${rank}  ${nameStr}  ${e.score.toLocaleString()}`, {
+        fontSize:'13px', fontFamily:'Gloomie Saturday',
+        color:col, stroke:'#000', strokeThickness: isMe ? 3 : 2
+      }).setOrigin(0.5).setAlpha(0);
+      allObjs.push(row);
+    });
+
+    // Stagger fade in
+    allObjs.forEach((o, i) => {
+      this.tweens.add({ targets:o, alpha:1, duration:200, delay:300 + i*35 });
+    });
+
+    // Show retry prompt after board fades in, then enable SPACE
+    this.tweens.add({ targets:this._retryTxt, alpha:1, duration:400,
+      delay:300 + allObjs.length*35 + 200,
+      onComplete:() => {
+        this.tweens.add({ targets:this._retryTxt, alpha:0, duration:600, yoyo:true, repeat:-1 });
+        this.input.keyboard.once('keydown-SPACE', () => {
+          this.cameras.main.fadeOut(400,0,0,0);
+          this.cameras.main.once('camerafadeoutcomplete', () => {
+            this.scene.stop('GameOverScene');
+            this.scene.start('GameScene');
+          });
+        });
+      }
+    });
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   GAME CONFIG & LAUNCH
+   Wait for Gloomie Saturday to load before starting so all text uses it.
+   ────────────────────────────────────────────────────────────────────────── */
+function _launchGame() {
+  new Phaser.Game({
+    type: Phaser.AUTO,
+    width: W, height: H,
+    backgroundColor: '#87CEEB',
+    physics: {
+      default: 'arcade',
+      arcade: { gravity:{ y:900 }, debug:false }
+    },
+    scene: [BootScene, MenuScene, GameScene, GameOverScene]
+  });
+}
+
+document.fonts.load('16px "Gloomie Saturday"')
+  .then(_launchGame)
+  .catch(_launchGame); // launch anyway if font load fails
+</script>
+</body>
+</html>
