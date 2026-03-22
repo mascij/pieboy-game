@@ -435,7 +435,7 @@ class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(5);
 
     // Version tag — bottom-right, small and subtle
-    this.add.text(W - 6, H - 6, 'v1.12', {
+    this.add.text(W - 6, H - 6, 'v1.13', {
       fontSize:'10px', fontFamily:'monospace',
       color:'#555555', stroke:'#000000', strokeThickness:2
     }).setOrigin(1, 1).setDepth(5).setAlpha(0.7);
@@ -515,6 +515,17 @@ class GameScene extends Phaser.Scene {
     this._superEnd   = 0;
     this._crouching  = false;
     this._jumpsLeft  = 2;   // double-jump: 2 = both jumps available
+    // Burp ammo: 3 shots max, recharge one at a time (5s, +2s, +2s)
+    this._burpAmmo        = 3;
+    this._burpRecharging  = false;
+    this._burpRechargeStart = 0;
+    // Sewer protection
+    this._inSewer         = false;
+    this._sewerEnterTime  = 0;
+    this._sewerWarnShown  = false;
+    this._sewerDmgNext    = 0;
+    // Message announce stack
+    this._announceStack   = [];
     this._wasOnGround = true;
     this._scoreLastMilestone = 0;  // tracks last 500-pt milestone crossed
 
@@ -588,7 +599,6 @@ class GameScene extends Phaser.Scene {
     this._boss = null;
     this._bossHealth = 0;
     this._bossDir = -1;
-    this._bossExitTime = 0;
     this._bossFlashTween = null;
     this._bossLaserCharging = false;
     this._bossNextLaser = 0;
@@ -659,6 +669,17 @@ class GameScene extends Phaser.Scene {
       shadow:{ offsetX:2, offsetY:2, color:'#FF6600', blur:0, fill:true }
     }).setOrigin(0.5, 0).setDepth(50);
 
+    // Burp ammo icons (right of hearts)
+    this._burpIcons = [];
+    const burpStartX = 22 + 3*30 + 16; // right of 3 hearts
+    this.add.text(burpStartX, 10, 'BURP', {
+      fontSize:'9px', fontFamily:'monospace', color:'#AAFFEE', stroke:'#000', strokeThickness:2
+    }).setDepth(50);
+    for(let i = 0; i < 3; i++){
+      const icon = this.add.circle(burpStartX + 8 + i*18, 30, 7, 0xFFFFFF, 1).setDepth(50);
+      this._burpIcons.push(icon);
+    }
+
     // Controls hint (bottom strip)
     this.add.text(W/2, H-5, GAME_TEXT.hudControls, {
       fontSize:'18px', fontFamily:'Gloomie Saturday',
@@ -675,6 +696,13 @@ class GameScene extends Phaser.Scene {
   _updateHUD() {
     this._heartImgs.forEach((h, i) => h.setTexture(i < this.health ? 'heart_full' : 'heart_empty'));
     this._scoreTxt.setText(this.score.toLocaleString());
+    // Burp ammo icons: white=loaded, dark=empty
+    if(this._burpIcons) {
+      this._burpIcons.forEach((ic, i) => {
+        ic.setFillStyle(i < this._burpAmmo ? 0xCCFFFF : 0x333333);
+        ic.setAlpha(i < this._burpAmmo ? 1 : 0.5);
+      });
+    }
   }
 
   /* ────────────── Main update ─────────────── */
@@ -699,6 +727,8 @@ class GameScene extends Phaser.Scene {
     this._handleProjectiles(dt);
     this._handlePickups(time, dt);
     this._handleBoss(time, dt);
+    this._handleBurpRecharge(time);
+    this._handleSewer(time);
     this._updateHUD();
     this._checkBossTrigger();
 
@@ -769,10 +799,20 @@ class GameScene extends Phaser.Scene {
       this._doMelee(time);
     }
 
-    // Ranged attack (C or b2)
+    // Ranged attack (C or b2) — costs 1 ammo, recharge starts when empty
     if((Phaser.Input.Keyboard.JustDown(this._cKey) || _padJust(2)) && time > this._attackCooldown) {
-      this._attackCooldown = time+500;
-      this._fireBurp(p.x+30, p.y);
+      this._attackCooldown = time + 300;
+      if(this._burpAmmo > 0) {
+        this._burpAmmo--;
+        this._updateHUD();
+        if(this._burpAmmo === 0 && !this._burpRecharging) {
+          this._burpRecharging = true;
+          this._burpRechargeStart = time;
+        }
+        this._fireBurp(p.x+30, p.y);
+      } else {
+        this._announce('No burp! Recharging...', '#AAAAAA', 16);
+      }
     }
   }
 
@@ -875,7 +915,7 @@ class GameScene extends Phaser.Scene {
       const busLeft = d.sprite.x - BUS_HALFW;
       const pRight  = this._player.x + 18;  // player hitbox right edge
       const pLeft   = this._player.x - 18;
-      if(!this._superMode && pRight > busLeft && pLeft < busLeft + 30 && this._player.y > BUS_TOP + 20) {
+      if(!this._superMode && !this._inSewer && pRight > busLeft && pLeft < busLeft + 30 && this._player.y > BUS_TOP + 20) {
         this._takeDamage();
       }
     });
@@ -943,12 +983,12 @@ class GameScene extends Phaser.Scene {
     });
 
     // Banner + shake
-    this._floatBig(W/2, H/2 - 20, '⭐ SUPER PIE BOY! ⭐', '#FFD700', 34);
+    this._announce('⭐ SUPER PIE BOY! ⭐', '#FFD700', 34);
     this.cameras.main.shake(200, 0.015);
 
     // Warning at 4.5s
     this.time.delayedCall(4500, () => {
-      if(this._superMode) this._floatBig(W/2, H/2, 'Hurry! Fading soon...', '#FF6600', 20);
+      if(this._superMode) this._announce('Hurry! Fading soon...', '#FF6600', 20);
     });
   }
 
@@ -958,7 +998,7 @@ class GameScene extends Phaser.Scene {
     this._player.clearTint();
     this._player.setScale(1);
     this._player.body.setSize(36, 38);
-    this._floatBig(W/2, H/2, 'Back to normal...', '#AAAAAA', 18);
+    this._announce('Back to normal...', '#AAAAAA', 18);
   }
 
   /* ────────────── Enemies ─────────────── */
@@ -984,6 +1024,7 @@ class GameScene extends Phaser.Scene {
 
   _hitByEnemy(player, enemy) {
     if(this._superMode){ this._killEnemy(enemy); return; }
+    if(this._inSewer) return;   // protected underground
     if(this.time.now < this._iframes) return;
     this._takeDamage();
   }
@@ -1054,6 +1095,50 @@ class GameScene extends Phaser.Scene {
   }
 
 
+  /* ────────────── Burp recharge ─────────────── */
+  _handleBurpRecharge(time) {
+    if(!this._burpRecharging || this._burpAmmo >= 3) return;
+    // Schedule: 0→1 after 5s, 1→2 after 7s, 2→3 after 9s (from recharge start)
+    const thresholds = [5000, 7000, 9000];
+    const newAmmo = thresholds.filter(t => (time - this._burpRechargeStart) >= t).length;
+    if(newAmmo > this._burpAmmo) {
+      const gained = newAmmo - this._burpAmmo;
+      this._burpAmmo = newAmmo;
+      this._updateHUD();
+      for(let i = 0; i < gained; i++)
+        this._announce('💨 Burp ready!', '#AAFFEE', 16);
+      if(this._burpAmmo >= 3) this._burpRecharging = false;
+    }
+  }
+
+  /* ────────────── Sewer protection ─────────────── */
+  _handleSewer(time) {
+    const underground = this._player.y > GROUND_Y + 10;
+    if(underground && !this._inSewer) {
+      // Just entered sewer
+      this._inSewer = true;
+      this._sewerEnterTime = time;
+      this._sewerWarnShown = false;
+      this._sewerDmgNext = time + 5000;
+    } else if(!underground && this._inSewer) {
+      // Just left sewer
+      this._inSewer = false;
+      this._sewerWarnShown = false;
+    }
+    if(this._inSewer) {
+      const elapsed = time - this._sewerEnterTime;
+      if(elapsed >= 4500 && !this._sewerWarnShown) {
+        this._sewerWarnShown = true;
+        this._announce('🧀 PIE BOY GET UP!', '#FFDD00', 22);
+      }
+      if(time > this._sewerDmgNext) {
+        this._sewerDmgNext = time + 2000;
+        this._takeDamage();
+        this._announce('🚨 GET OUT OF THE SEWER!', '#FF4400', 20);
+      }
+    }
+  }
+
   /* ────────────── Boss ─────────────── */
   _checkBossTrigger() {
     if(!this.bossActive && this.score>0 &&
@@ -1072,7 +1157,6 @@ class GameScene extends Phaser.Scene {
     this._boss.body.allowGravity = false;
     this._boss.body.setSize(80,132);
     this._bossDir = -1;
-    this._bossExitTime = this.time.now + 13000;
     this._bossLaserCharging = false;
     this._bossGlowObjs = [];
     this._bossNextLaser = this.time.now + Phaser.Math.Between(3000, 5000);
@@ -1091,10 +1175,6 @@ class GameScene extends Phaser.Scene {
     this._boss.body.reset(newX, this._boss.y);
     if(this._boss.x < 280) { this._bossDir =  1; }
     if(this._boss.x > 680) { this._bossDir = -1; }
-    if(time > this._bossExitTime) {
-      this._exitBoss('fled');
-      return;
-    }
 
     // Track glow overlays to follow boss eyes
     if(this._bossGlowObjs.length) {
@@ -1363,14 +1443,14 @@ class GameScene extends Phaser.Scene {
 
     // Big floating milestone banner
     const pts = (level * 500).toLocaleString();
-    this._floatBig(W/2, H/2 - 30, `🎉 ${pts} PTS!`, '#FFD700', 32);
+    this._announce(`🎉 ${pts} PTS!`, '#FFD700', 32);
   }
 
   _majorMilestone(level) {
     // Cycling Pie Boy encouragement at every 2000-pt block
     const msgs = GAME_TEXT.speedUpMsgs;
     const msg  = msgs[(level - 1) % msgs.length];
-    this._floatBig(W/2, H/2 + 30, msg, '#FF6600', 26);
+    this._announce(msg, '#FF6600', 26);
   }
 
   // Small floating score pop (kills, small events)
@@ -1383,18 +1463,61 @@ class GameScene extends Phaser.Scene {
       onComplete:()=>t.destroy() });
   }
 
-  // Large floating score pop (enemy kills, pickups, boss hits)
+  // Large floating pop tied to a world position (kills, pickups, boss hits)
   _floatBig(x, y, msg, color='#FFF', size=24) {
     const t = this.add.text(x, y, msg, {
       fontSize:`${size}px`, fontFamily:'Gloomie Saturday',
       color, stroke:'#000', strokeThickness: size > 24 ? 6 : 4,
       shadow:{ offsetX:2, offsetY:2, color:'#FF6600', blur:0, fill:true }
     }).setOrigin(0.5).setDepth(31);
-    // Hold visible for 2s, then fade out over 0.8s (same as intro message)
     this.tweens.add({
       targets: t, alpha: 0,
       delay: 2000, duration: 800, ease: 'Cubic.In',
       onComplete: () => t.destroy()
+    });
+  }
+
+  // Center-screen announcements — stacks vertically, older msgs drift upward
+  _announce(msg, color='#FFF', size=22) {
+    const SLOT_H = 34;
+    const BASE_Y = H / 2 + 30;  // newest message starts here
+
+    // Shift existing messages up by one slot
+    this._announceStack.forEach(item => {
+      if(item.txt && item.txt.active) {
+        item.targetY -= SLOT_H;
+        this.tweens.add({ targets: item.txt, y: item.targetY, duration: 180, ease: 'Quad.Out' });
+      }
+    });
+
+    // Drop oldest if stack too deep
+    while(this._announceStack.length >= 5) {
+      const old = this._announceStack.shift();
+      if(old.txt && old.txt.active) {
+        this.tweens.killTweensOf(old.txt);
+        old.txt.destroy();
+      }
+    }
+
+    const t = this.add.text(W / 2, BASE_Y, msg, {
+      fontSize:`${size}px`, fontFamily:'Gloomie Saturday',
+      color, stroke:'#000', strokeThickness: size > 22 ? 6 : 4,
+      shadow:{ offsetX:2, offsetY:2, color:'#AA4400', blur:0, fill:true }
+    }).setOrigin(0.5).setDepth(32);
+
+    const entry = { txt: t, targetY: BASE_Y };
+    this._announceStack.push(entry);
+
+    // Fade out after 2.2s
+    this.time.delayedCall(2200, () => {
+      if(t && t.active) {
+        this.tweens.add({ targets: t, alpha: 0, duration: 600, ease: 'Cubic.In',
+          onComplete: () => {
+            t.destroy();
+            this._announceStack = this._announceStack.filter(e => e.txt !== t);
+          }
+        });
+      }
     });
   }
 

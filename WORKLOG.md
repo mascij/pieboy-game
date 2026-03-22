@@ -8,6 +8,7 @@ Running notes from every session. Update this file as we go.
 
 | Version | What Changed |
 |---------|-------------|
+| v1.13 | Burp ammo (3 shots, HUD icons, recharge 5s→7s→9s); boss never flees, must be killed; sewer gives 5s protection then deals damage with warning; `_announce()` message queue prevents on-screen stacking |
 | v1.12 | Boss laser eye attack: eyes glow red (pulsing) for 1.5s, lock onto Pie Boy's current position, fire twin red beams across screen; dodge to safety or take damage |
 | v1.11 | Fix cream burp spread (allowGravity set after group.add); version tag on splash |
 | v1.10 | Cream burp fires 3 spread projectiles; boss 3-hit feedback (red flash → dark strobe → epic explosion death); sewer floor is one-way so player can jump back up; starting speed 220 → 340; version tag on splash screen; cache-busting bat file |
