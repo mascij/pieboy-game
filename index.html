@@ -434,6 +434,12 @@ class MenuScene extends Phaser.Scene {
       color:'#FFDD99', stroke:'#000', strokeThickness:3
     }).setOrigin(0.5).setDepth(5);
 
+    // Version tag — bottom-right, small and subtle
+    this.add.text(W - 6, H - 6, 'v1.11', {
+      fontSize:'10px', fontFamily:'monospace',
+      color:'#555555', stroke:'#000000', strokeThickness:2
+    }).setOrigin(1, 1).setDepth(5).setAlpha(0.7);
+
     // Gamepad status — updates once controller is detected
     this._padTxt = this.add.text(W/2, 393, '🎮 Press a controller button to connect', {
       fontSize:'11px', fontFamily:'Gloomie Saturday',
@@ -808,9 +814,9 @@ class GameScene extends Phaser.Scene {
       const b = this.physics.add.image(x, y, 'burp')
                   .setDepth(12)
                   .setScale(0.75 + i * 0.12); // slight size variation
-      b.body.allowGravity = false;
+      this._projectiles.add(b);           // add FIRST so group doesn't override body
+      b.body.allowGravity = false;        // set AFTER group adoption
       b.setVelocity(490, vy);
-      this._projectiles.add(b);
       this.time.delayedCall(1500, ()=>{ if(b&&b.active) b.destroy(); });
 
       // Projectile vs enemy

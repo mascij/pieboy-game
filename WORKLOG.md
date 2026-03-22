@@ -4,6 +4,24 @@ Running notes from every session. Update this file as we go.
 
 ---
 
+## 📋 Changelog
+
+| Version | What Changed |
+|---------|-------------|
+| v1.10 | Cream burp fires 3 spread projectiles; boss 3-hit feedback (red flash → dark strobe → epic explosion death); sewer floor is one-way so player can jump back up; starting speed 220 → 340; version tag on splash screen; cache-busting bat file |
+| v1.9 | Super Pie Boy star power (key pickup → 3× size, rainbow flash, auto-kill enemies, bus immunity, 6s); `_getActivePad` helper for reliable Bluetooth gamepad detection |
+| v1.8 | Bluetooth gamepad support (b0/b1=jump, b2=burp, b3=melee); controller indicator on menu; GameOver gamepad retry |
+| v1.7 | GitHub Pages deployment; README; `.gitignore`; `deploy-to-github.ps1` |
+| v1.6 | Emoji pickup system (🧁🍪🍩🔑) with manual proximity collision; score now updates from kills/pickups (was broken); spawn height fix |
+| v1.5 | Removed weapon HUD, boss warning banner, key-toggles-weapon logic |
+| v1.4 | Milestone messages stay up longer (delay:2000, duration:800) |
+| v1.3 | Controls restored to splash screen |
+| v1.2 | Skins: pie_boy, enemies, boss, bus textures replaced with designed sprites |
+| v1.1 | Menu scene, Game Over scene, music, font (Gloomie Saturday) |
+| v1.0 | Initial single-file build: runner, pickups, enemies, boss, HUD |
+
+---
+
 ## Session 1 — Initial Build
 
 **Goal:** Get all 4 design-doc phases running as a single HTML file.
