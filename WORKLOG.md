@@ -8,6 +8,8 @@ Running notes from every session. Update this file as we go.
 
 | Version | What Changed |
 |---------|-------------|
+| v1.12 | Boss laser eye attack: eyes glow red (pulsing) for 1.5s, lock onto Pie Boy's current position, fire twin red beams across screen; dodge to safety or take damage |
+| v1.11 | Fix cream burp spread (allowGravity set after group.add); version tag on splash |
 | v1.10 | Cream burp fires 3 spread projectiles; boss 3-hit feedback (red flash → dark strobe → epic explosion death); sewer floor is one-way so player can jump back up; starting speed 220 → 340; version tag on splash screen; cache-busting bat file |
 | v1.9 | Super Pie Boy star power (key pickup → 3× size, rainbow flash, auto-kill enemies, bus immunity, 6s); `_getActivePad` helper for reliable Bluetooth gamepad detection |
 | v1.8 | Bluetooth gamepad support (b0/b1=jump, b2=burp, b3=melee); controller indicator on menu; GameOver gamepad retry |

@@ -435,7 +435,7 @@ class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(5);
 
     // Version tag — bottom-right, small and subtle
-    this.add.text(W - 6, H - 6, 'v1.11', {
+    this.add.text(W - 6, H - 6, 'v1.12', {
       fontSize:'10px', fontFamily:'monospace',
       color:'#555555', stroke:'#000000', strokeThickness:2
     }).setOrigin(1, 1).setDepth(5).setAlpha(0.7);
@@ -590,6 +590,9 @@ class GameScene extends Phaser.Scene {
     this._bossDir = -1;
     this._bossExitTime = 0;
     this._bossFlashTween = null;
+    this._bossLaserCharging = false;
+    this._bossNextLaser = 0;
+    this._bossGlowObjs = [];
 
     // Reset these every create() — class fields are NOT re-initialized on scene restart
     this._truckData    = [];
@@ -1070,6 +1073,9 @@ class GameScene extends Phaser.Scene {
     this._boss.body.setSize(80,132);
     this._bossDir = -1;
     this._bossExitTime = this.time.now + 13000;
+    this._bossLaserCharging = false;
+    this._bossGlowObjs = [];
+    this._bossNextLaser = this.time.now + Phaser.Math.Between(3000, 5000);
 
     this.physics.add.overlap(this._player, this._boss,
       ()=>this._takeDamage(), null, this);
@@ -1083,12 +1089,114 @@ class GameScene extends Phaser.Scene {
     // overwritten by the physics engine on the next step.
     const newX = this._boss.x + this._bossDir * 85 * dt;
     this._boss.body.reset(newX, this._boss.y);
-    if(this._boss.x < 280) { this._bossDir =  1; console.log('[Boss] direction → right'); }
-    if(this._boss.x > 680) { this._bossDir = -1; console.log('[Boss] direction → left'); }
+    if(this._boss.x < 280) { this._bossDir =  1; }
+    if(this._boss.x > 680) { this._bossDir = -1; }
     if(time > this._bossExitTime) {
-      console.log('[Boss] Auto-exit timer fired');
       this._exitBoss('fled');
+      return;
     }
+
+    // Track glow overlays to follow boss eyes
+    if(this._bossGlowObjs.length) {
+      const offsets = [-14, 14];
+      this._bossGlowObjs.forEach((g, i) => {
+        if(g && g.active){ g.x = this._boss.x + offsets[i]; g.y = this._boss.y - 50; }
+      });
+    }
+
+    // Trigger laser charge
+    if(!this._bossLaserCharging && time > this._bossNextLaser) {
+      this._chargeBossLaser();
+    }
+  }
+
+  /* ── Eye glow → lock-on → laser fire ── */
+  _bossEyeOffsets() { return [-14, 14]; }
+
+  _chargeBossLaser() {
+    if(!this._boss || !this._boss.active) return;
+    this._bossLaserCharging = true;
+    console.log('[Boss] Charging laser...');
+
+    // Create red glow circles over both eyes
+    this._bossEyeOffsets().forEach(ox => {
+      const glow = this.add.circle(
+        this._boss.x + ox, this._boss.y - 50, 11, 0xFF0000, 0.95
+      ).setDepth(16);
+      // Pulsing scale
+      this.tweens.add({
+        targets: glow, scaleX: 1.7, scaleY: 1.7, alpha: 0.4,
+        duration: 220, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+      });
+      this._bossGlowObjs.push(glow);
+    });
+
+    // After 1.5s lock on to Pie Boy's current position and fire
+    this.time.delayedCall(1500, () => {
+      if(!this._boss || !this._boss.active) { this._clearBossGlows(); return; }
+      const tx = this._player.x;
+      const ty = this._player.y;
+      this._fireBossLaser(tx, ty);
+    });
+  }
+
+  _fireBossLaser(tx, ty) {
+    this._clearBossGlows();
+    if(!this._boss || !this._boss.active) return;
+    console.log(`[Boss] Firing laser at (${Math.round(tx)}, ${Math.round(ty)})`);
+
+    // Extend beam to ground level past target for dramatic effect
+    const eyeOffsets = this._bossEyeOffsets();
+    const beamGraphics = [];
+
+    eyeOffsets.forEach(ox => {
+      const ex = this._boss.x + ox;
+      const ey = this._boss.y - 50;
+      // Extend the beam: calculate direction and push to screen edge/floor
+      const dx = tx - ex, dy = ty - ey;
+      const len = Math.sqrt(dx*dx + dy*dy) || 1;
+      const extend = 900; // px past origin
+      const endX = ex + (dx/len) * extend;
+      const endY = ey + (dy/len) * extend;
+
+      const g = this.add.graphics().setDepth(16);
+      // Outer soft glow
+      g.lineStyle(9, 0xFF2200, 0.25); g.beginPath(); g.moveTo(ex, ey); g.lineTo(endX, endY); g.strokePath();
+      // Core beam
+      g.lineStyle(3, 0xFF0000, 1);   g.beginPath(); g.moveTo(ex, ey); g.lineTo(endX, endY); g.strokePath();
+      // Bright center line
+      g.lineStyle(1, 0xFFAAAA, 0.9); g.beginPath(); g.moveTo(ex, ey); g.lineTo(endX, endY); g.strokePath();
+      beamGraphics.push(g);
+    });
+
+    // Impact flash at locked target
+    const flash = this.add.circle(tx, ty, 18, 0xFF0000, 0.85).setDepth(17);
+    this.tweens.add({ targets: flash, scaleX: 2.5, scaleY: 2.5, alpha: 0, duration: 400,
+      onComplete: () => flash.destroy() });
+
+    // Damage check: did player stay near the locked position?
+    const dx = Math.abs(this._player.x - tx);
+    const dy = Math.abs(this._player.y - ty);
+    if(dx < 60 && dy < 55) {
+      this._takeDamage();
+      this.cameras.main.flash(180, 255, 0, 0);
+      this._float(this._player.x, this._player.y - 50, '☠️ LASERED!', '#FF0000');
+    }
+
+    // Fade beams out
+    this.tweens.add({
+      targets: beamGraphics, alpha: 0, duration: 500, ease: 'Quad.easeIn',
+      onComplete: () => beamGraphics.forEach(g => g.destroy())
+    });
+
+    // Schedule next laser
+    this._bossLaserCharging = false;
+    this._bossNextLaser = this.time.now + Phaser.Math.Between(3500, 6000);
+  }
+
+  _clearBossGlows() {
+    this._bossGlowObjs.forEach(g => { if(g && g.active) g.destroy(); });
+    this._bossGlowObjs = [];
   }
 
   _damageBoss() {
@@ -1140,8 +1248,10 @@ class GameScene extends Phaser.Scene {
       return;
     }
     console.log(`[Boss] Exiting — reason: ${reason}`);
-    // ── Stop flash tween immediately ──────────────────────────────────────────
+    // ── Stop flash tween + clear laser glows immediately ─────────────────────
     if(this._bossFlashTween) { this._bossFlashTween.stop(); this._bossFlashTween = null; }
+    this._clearBossGlows();
+    this._bossLaserCharging = false;
 
     // ── Disable physics IMMEDIATELY so overlap callbacks stop firing ──────────
     this._boss.body.enable = false;
