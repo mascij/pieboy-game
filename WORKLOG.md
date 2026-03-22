@@ -121,9 +121,24 @@ Two problems combined:
 
 ---
 
+## Session 10 — Burp Spread, Boss Drama, Sewer Fix, Speed Boost
+
+**Goal:** Polish combat feel, fix sewer one-way platform, increase starting pace.
+
+**Delivered:**
+- **Cream burp spread** — `_fireBurp()` now fires 3 whipped-cream ball projectiles in a spread (vy: −140 / −50 / +55). Each ball is a round white texture (`_burp()` redrawn as a circle). All three damage enemies and bosses.
+- **Boss hit feedback** — 3-hit system now has visual stages:
+  - Hit 1 (health=2): slow red pulse tween, "⚠️ 2 MORE!" float banner
+  - Hit 2 (health=1): fast dark-red strobe flash + camera shake, "💀 FINISH HIM!" banner
+  - Hit 3 (health=0): epic death — 5 concentric explosion ring bursts with debris blobs, boss spins/grows/fades out, camera shakes hard + white flash
+- **Sewer fix** — `gFloor.body.checkCollision.down = false` makes the ground a one-way platform. Pie Boy can now jump back UP through the floor from the sewer. Problem was Phaser's static body blocked upward passage by default.
+- **Starting speed increase** — Base speed changed from 220 → 340. Game now opens at roughly 4000-point pace. Speed formula: `Math.min(500, 340 + Math.floor(score/2000)*60)`.
+
+---
+
 ## Known Issues / To-Do
 
-- [ ] Sewer gap is visual-only — player doesn't actually fall into a lower sewer layer yet
+- [x] Sewer gap is visual-only — player doesn't actually fall into a lower sewer layer yet (fixed: one-way floor)
 - [ ] Truck food pickup on top of a platform has slightly off collision height (minor)
 - [ ] Boss entrance tween doesn't play on first spawn because `body.reset()` moves the boss instantly — could add a short enter-from-right slide
 - [ ] No sound / music yet

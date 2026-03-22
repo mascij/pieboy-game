@@ -280,10 +280,11 @@ class BootScene extends Phaser.Scene {
   }
 
   _burp() {
-    this._g('burp', 28, 16, g => {
-      g.fillStyle(0xFFFAF0,0.92); g.fillEllipse(14,8,28,16);
-      g.fillStyle(0xFFFFFF); g.fillCircle(14,8,4);
-      g.lineStyle(1,0xDDEEAA,0.8); g.strokeEllipse(14,8,28,16);
+    // Round whipped-cream ball
+    this._g('burp', 22, 22, g => {
+      g.fillStyle(0xFFFFFF, 1);    g.fillCircle(11, 11, 10);
+      g.fillStyle(0xFFF0E0, 0.85); g.fillCircle(7,  7,  5);
+      g.lineStyle(1.5, 0xCCCCAA, 0.5); g.strokeCircle(11, 11, 10);
     });
   }
 
@@ -519,6 +520,8 @@ class GameScene extends Phaser.Scene {
     this._sewerGroup  = this.physics.add.staticGroup();
     const gFloor = this._groundGroup.create(W/2, GROUND_Y+4, 'pixel');
     gFloor.setDisplaySize(W*4, 8).setAlpha(0).refreshBody();
+    // One-way platform: player can jump UP through the floor from the sewer below
+    gFloor.body.checkCollision.down = false;
     const sFloor = this._sewerGroup.create(W/2, SEWER_Y+4, 'pixel');
     sFloor.setDisplaySize(W*4, 8).setAlpha(0).refreshBody();
     this._gTiles = [];
@@ -580,6 +583,7 @@ class GameScene extends Phaser.Scene {
     this._bossHealth = 0;
     this._bossDir = -1;
     this._bossExitTime = 0;
+    this._bossFlashTween = null;
 
     // Reset these every create() — class fields are NOT re-initialized on scene restart
     this._truckData    = [];
@@ -669,7 +673,7 @@ class GameScene extends Phaser.Scene {
     if(this.over) return;
     const dt = delta/1000;
 
-    this.gameSpeed = Math.min(500, 220 + Math.floor(this.score/2000)*60);
+    this.gameSpeed = Math.min(500, 340 + Math.floor(this.score/2000)*60);
     if(this._superMode){
       this.gameSpeed = Math.min(750, Math.floor(this.gameSpeed * 1.5));
       // Expire super mode
@@ -798,23 +802,28 @@ class GameScene extends Phaser.Scene {
 
   /* ────────────── Ranged ─────────────── */
   _fireBurp(x, y) {
-    // Create burp projectile directly (more reliable than group.get() for physics bodies)
-    const b = this.physics.add.image(x, y, 'burp').setDepth(12);
-    b.body.allowGravity = false;
-    b.setVelocity(480, -50);
-    this._projectiles.add(b); // add to group so the ground collider catches it
-    this.time.delayedCall(1600, ()=>{ if(b&&b.active) b.destroy(); });
+    // Three whipped-cream balls in a spread (up / straight / down)
+    const yVels = [-140, -50, 55];
+    yVels.forEach((vy, i) => {
+      const b = this.physics.add.image(x, y, 'burp')
+                  .setDepth(12)
+                  .setScale(0.75 + i * 0.12); // slight size variation
+      b.body.allowGravity = false;
+      b.setVelocity(490, vy);
+      this._projectiles.add(b);
+      this.time.delayedCall(1500, ()=>{ if(b&&b.active) b.destroy(); });
 
-    // Projectile vs enemy
-    this.physics.add.overlap(b, this._enemies, (proj, enemy)=>{
-      proj.destroy(); this._killEnemy(enemy);
-    });
-    // Projectile vs boss
-    if(this._boss && this._boss.active) {
-      this.physics.add.overlap(b, this._boss, (proj)=>{
-        proj.destroy(); this._damageBoss();
+      // Projectile vs enemy
+      this.physics.add.overlap(b, this._enemies, (proj, enemy)=>{
+        proj.destroy(); this._killEnemy(enemy);
       });
-    }
+      // Projectile vs boss
+      if(this._boss && this._boss.active) {
+        this.physics.add.overlap(b, this._boss, (proj)=>{
+          proj.destroy(); this._damageBoss();
+        });
+      }
+    });
   }
 
   /* ────────────── Obstacles (trucks / sewer gaps) ─────────────── */
@@ -1084,9 +1093,39 @@ class GameScene extends Phaser.Scene {
     }
     this._bossHealth--;
     console.log(`[Boss] Hit! Health remaining: ${this._bossHealth}`);
-    this.cameras.main.shake(140,0.006);
-    this._float(this._boss.x, this._boss.y-88,'💥 Hit!','#FF6600');
-    if(this._bossHealth<=0) this._exitBoss('defeated');
+    this.cameras.main.shake(180, 0.008);
+    this._float(this._boss.x, this._boss.y-88, '💥 Hit!', '#FF6600');
+
+    // Stop any previous flash tween
+    if(this._bossFlashTween) { this._bossFlashTween.stop(); this._bossFlashTween = null; }
+
+    if(this._bossHealth === 2) {
+      // ── Hit 1: slow red pulse ─────────────────────────────────────────
+      this._boss.setTint(0xFF4444);
+      this._bossFlashTween = this.tweens.add({
+        targets: this._boss,
+        alpha: { from: 1, to: 0.55 },
+        duration: 450, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+        onUpdate: () => { if(this._boss) this._boss.setTint(0xFF3333); }
+      });
+      this._floatBig(this._boss.x, this._boss.y-110, '⚠️ 2 MORE!', '#FF4444', 22);
+
+    } else if(this._bossHealth === 1) {
+      // ── Hit 2: fast dark-red warning flash ───────────────────────────
+      this._boss.setTint(0xAA0000);
+      this._bossFlashTween = this.tweens.add({
+        targets: this._boss,
+        alpha: { from: 1, to: 0.3 },
+        duration: 160, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+        onUpdate: () => { if(this._boss) this._boss.setTint(0xCC0000); }
+      });
+      this.cameras.main.shake(260, 0.012);
+      this._floatBig(this._boss.x, this._boss.y-110, '💀 FINISH HIM!', '#CC0000', 24);
+
+    } else if(this._bossHealth <= 0) {
+      // ── Hit 3: death ─────────────────────────────────────────────────
+      this._exitBoss('defeated');
+    }
   }
 
   _exitBoss(reason) {
@@ -1095,25 +1134,65 @@ class GameScene extends Phaser.Scene {
       return;
     }
     console.log(`[Boss] Exiting — reason: ${reason}`);
-    if(reason==='defeated'){
-      this._addScore(500);
-      this._floatBig(this._boss.x, this._boss.y-110, GAME_TEXT.bossDefeated, '#FFD700', 26);
-      this.cameras.main.flash(400,255,165,0);
-      this._miniPiePop(this._boss.x, this._boss.y-30);
-    }
+    // ── Stop flash tween immediately ──────────────────────────────────────────
+    if(this._bossFlashTween) { this._bossFlashTween.stop(); this._bossFlashTween = null; }
+
     // ── Disable physics IMMEDIATELY so overlap callbacks stop firing ──────────
     this._boss.body.enable = false;
     // ── Null out this._boss NOW so no other frame can interact with it ─────────
     const dyingBoss = this._boss;
     this._boss      = null;
     this.bossActive = false;
-    // ── Tween the visual off screen, then clean up the game object ────────────
-    this.tweens.add({ targets: dyingBoss, x: W+120, alpha: 0, duration: 800,
-      onComplete: () => {
-        console.log('[Boss] Exit tween complete — destroying game object');
-        if(dyingBoss && dyingBoss.scene) dyingBoss.destroy();
-      }
-    });
+
+    if(reason==='defeated'){
+      this._addScore(500);
+      this._floatBig(dyingBoss.x, dyingBoss.y-110, GAME_TEXT.bossDefeated, '#FFD700', 26);
+      this.cameras.main.flash(300, 255, 165, 0);
+      this._miniPiePop(dyingBoss.x, dyingBoss.y-30);
+
+      // ── Epic explosion: expanding ring bursts ──────────────────────────────
+      const bx = dyingBoss.x, by = dyingBoss.y;
+      const BURST_COLORS = ['#FF4400','#FFAA00','#FFFF00','#FF00FF','#FFFFFF'];
+      BURST_COLORS.forEach((col, idx) => {
+        this.time.delayedCall(idx * 130, () => {
+          if(!this.scene.isActive()) return;
+          const ring = this.add.circle(bx, by, 10, Phaser.Display.Color.HexStringToColor(col).color, 0.9).setDepth(50);
+          this.tweens.add({ targets: ring, scaleX: 8, scaleY: 8, alpha: 0, duration: 600, ease: 'Quad.easeOut',
+            onComplete: () => ring.destroy() });
+          // Small debris blobs
+          for(let j = 0; j < 6; j++){
+            const angle = (j/6)*Math.PI*2;
+            const blob = this.add.circle(bx, by, 6, Phaser.Display.Color.HexStringToColor(col).color).setDepth(50);
+            this.tweens.add({ targets: blob,
+              x: bx + Math.cos(angle)*Phaser.Math.Between(60,140),
+              y: by + Math.sin(angle)*Phaser.Math.Between(60,140),
+              alpha: 0, duration: Phaser.Math.Between(500,900), ease: 'Quad.easeOut',
+              onComplete: () => blob.destroy() });
+          }
+        });
+      });
+
+      // ── Boss spins, grows, fades — epic death tween ───────────────────────
+      dyingBoss.setTint(0xFFFFFF);
+      this.tweens.add({ targets: dyingBoss, angle: 720, scaleX: 2.5, scaleY: 2.5, alpha: 0, duration: 900, ease: 'Quad.easeIn',
+        onComplete: () => {
+          console.log('[Boss] Epic death complete — destroying game object');
+          if(dyingBoss && dyingBoss.scene) dyingBoss.destroy();
+        }
+      });
+      // Extra camera punch
+      this.time.delayedCall(150, ()=>{ this.cameras.main.shake(500, 0.018); });
+      this.time.delayedCall(300, ()=>{ this.cameras.main.flash(200, 255, 255, 255); });
+
+    } else {
+      // ── Fled: tween off screen ──────────────────────────────────────────
+      this.tweens.add({ targets: dyingBoss, x: W+120, alpha: 0, duration: 800,
+        onComplete: () => {
+          console.log('[Boss] Exit tween complete — destroying game object');
+          if(dyingBoss && dyingBoss.scene) dyingBoss.destroy();
+        }
+      });
+    }
   }
 
   /* ────────────── Damage / game-over ─────────────── */
