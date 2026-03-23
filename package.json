@@ -1,0 +1,10 @@
+{
+  "name": "pieboy-the-great-boston-escape",
+  "version": "1.14.0",
+  "private": true,
+  "type": "module",
+  "description": "Pie Boy: The Great Boston Escape — A Phaser 3 endless runner",
+  "dependencies": {
+    "@upstash/redis": "^1.34.0"
+  }
+}
