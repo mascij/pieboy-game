@@ -188,10 +188,11 @@ class BootScene extends Phaser.Scene {
     // this.load.image('heart_empty',  'assets/heart_empty.png');   // 22×20
 
     // LOGO BANNER  (shown at top of menu — swap with your own art!)
-     this.load.image('logo_banner',  'assets/logo_banner.png');   // 800×160
+    // ?v= cache-buster forces browser to re-fetch after you replace the file
+     this.load.image('logo_banner',  `assets/logo_banner.png?v=${Date.now()}`);   // 800×160
 
     // MENU BACKGROUND  (full backdrop behind the menu — swap with your own art!)
-     this.load.image('menu_bg',      'assets/menu_bg.png');       // 800×400
+     this.load.image('menu_bg',      `assets/menu_bg.png?v=${Date.now()}`);       // 800×400
 
     // MUSIC  (loops through splash screen and gameplay)
     this.load.audio('music', 'assets/pieboy-music.mp3');
@@ -489,7 +490,7 @@ class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(5);
 
     // Version tag — bottom-right, small and subtle
-    this.add.text(W - 6, H - 6, 'v1.14', {
+    this.add.text(W - 6, H - 6, 'v1.15', {
       fontSize:'10px', fontFamily:'monospace',
       color:'#555555', stroke:'#000000', strokeThickness:2
     }).setOrigin(1, 1).setDepth(5).setAlpha(0.7);

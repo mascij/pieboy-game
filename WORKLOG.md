@@ -8,6 +8,7 @@ Running notes from every session. Update this file as we go.
 
 | Version | What Changed |
 |---------|-------------|
+| v1.15 | Cache-bust `menu_bg.png` and `logo_banner.png` on every load so browser always fetches the latest version after a file replacement |
 | v1.14 | Vercel deployment + global leaderboard (KV/Redis); `/stats` text endpoint; unique IP + geo logging; global miles/kills stats bar; session + telemetry API; "Welcome from Harrison" banner; distance on leaderboard |
 | v1.13 | Burp ammo (3 shots, HUD icons, recharge 5s→7s→9s); boss never flees, must be killed; sewer gives 5s protection then deals damage with warning; `_announce()` message queue prevents on-screen stacking |
 | v1.12 | Boss laser eye attack: eyes glow red (pulsing) for 1.5s, lock onto Pie Boy's current position, fire twin red beams across screen; dodge to safety or take damage |
