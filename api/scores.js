@@ -16,7 +16,7 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const limit = Math.min(parseInt(req.query?.limit) || 10, 50);
     // Members are JSON strings; Z-score is the game score
-    const members = await redis.zrange('leaderboard', 0, limit - 1, { rev: true });
+    const members = await redis.zrevrange('leaderboard', 0, limit - 1);
     const scores = (members || []).map(m => {
       try { return JSON.parse(m); } catch { return null; }
     }).filter(Boolean);

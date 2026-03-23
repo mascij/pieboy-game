@@ -490,7 +490,7 @@ class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(5);
 
     // Version tag — bottom-right, small and subtle
-    this.add.text(W - 6, H - 6, 'v1.15', {
+    this.add.text(W - 6, H - 6, 'v1.16', {
       fontSize:'10px', fontFamily:'monospace',
       color:'#555555', stroke:'#000000', strokeThickness:2
     }).setOrigin(1, 1).setDepth(5).setAlpha(0.7);
@@ -1728,8 +1728,8 @@ class GameOverScene extends Phaser.Scene {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ name, score: this.finalScore, distancePx: this.totalPixels })
     })
-    .then(() => fetch('/api/scores'))
-    .then(r => r.json())
+    .then(r => { if (!r.ok) throw new Error('POST failed: ' + r.status); return fetch('/api/scores'); })
+    .then(r => { if (!r.ok) throw new Error('GET failed: ' + r.status); return r.json(); })
     .then(data => {
       const board = (data.scores || []).map(e => ({ name:e.n, score:e.s, distance:e.d }));
       this._showBoard(board, name);
