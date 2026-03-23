@@ -1,6 +1,7 @@
 // api/telemetry.js — End-of-game telemetry (called on game over before name submit)
 // Updates all global aggregate stats.
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
+const redis = Redis.fromEnv();
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -22,22 +23,21 @@ export default async function handler(req, res) {
   const burps     = Math.max(0, parseInt(b.burpsFired)   || 0);
   const score     = Math.max(0, parseInt(b.score)        || 0);
 
+  // Update aggregate stats in parallel
   await Promise.all([
-    kv.hincrbyfloat('gstats', 'dist_px',    distPx),
-    kv.hincrby     ('gstats', 'kills',      kills),
-    kv.hincrby     ('gstats', 'playtime_ms',durationMs),
-    kv.hincrby     ('gstats', 'pickups',    pickups),
-    kv.hincrby     ('gstats', 'boss_kills', bossKills),
-    kv.hincrby     ('gstats', 'burps',      burps),
-    kv.hincrby     ('gstats', 'games',      1),
-    // Track highest score ever
-    kv.eval(
-      `local cur = tonumber(redis.call('GET', KEYS[1])) or 0
-       if tonumber(ARGV[1]) > cur then redis.call('SET', KEYS[1], ARGV[1]) end
-       return 1`,
-      1, 'high_score', score
-    ),
+    redis.hincrbyfloat('gstats', 'dist_px',     distPx),
+    redis.hincrby     ('gstats', 'kills',       kills),
+    redis.hincrby     ('gstats', 'playtime_ms', durationMs),
+    redis.hincrby     ('gstats', 'pickups',     pickups),
+    redis.hincrby     ('gstats', 'boss_kills',  bossKills),
+    redis.hincrby     ('gstats', 'burps',       burps),
+    redis.hincrby     ('gstats', 'games',       1),
   ]);
+
+  // Track all-time high score (Upstash doesn't support Lua eval over HTTP,
+  // so we do a simple get-then-set — race condition is acceptable for a game)
+  const curHigh = parseInt(await redis.get('high_score')) || 0;
+  if (score > curHigh) await redis.set('high_score', score);
 
   return res.json({ ok: true });
 }

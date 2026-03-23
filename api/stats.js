@@ -1,7 +1,8 @@
 // api/stats.js — Public stats endpoint
 // GET /api/stats        → JSON (used by game frontend for stats bar)
 // GET /stats            → plain text (rewritten via vercel.json, for humans)
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
+const redis = Redis.fromEnv();
 
 const CORS = { 'Access-Control-Allow-Origin': '*' };
 
@@ -9,9 +10,9 @@ export default async function handler(req, res) {
   Object.entries(CORS).forEach(([k, v]) => res.setHeader(k, v));
 
   const [stats, uniquePlayers, highScore] = await Promise.all([
-    kv.hgetall('gstats'),
-    kv.scard('unique_ips'),
-    kv.get('high_score'),
+    redis.hgetall('gstats'),
+    redis.scard('unique_ips'),
+    redis.get('high_score'),
   ]);
 
   const s            = stats || {};
@@ -60,12 +61,12 @@ export default async function handler(req, res) {
     uniquePlayers,
     totalSessions,
     totalGames,
-    totalMiles:   parseFloat(totalMiles.toFixed(1)),
+    totalMiles:    parseFloat(totalMiles.toFixed(1)),
     totalKills,
     bossKills,
     burps,
     pickups,
-    playtimeHours:parseFloat(playtimeHrs.toFixed(1)),
-    highScore:    topScore,
+    playtimeHours: parseFloat(playtimeHrs.toFixed(1)),
+    highScore:     topScore,
   });
 }

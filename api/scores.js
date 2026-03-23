@@ -1,5 +1,6 @@
 // api/scores.js — Global leaderboard (top 100 stored, top 10 returned)
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
+const redis = Redis.fromEnv(); // reads UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -15,7 +16,7 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const limit = Math.min(parseInt(req.query?.limit) || 10, 50);
     // Members are JSON strings; Z-score is the game score
-    const members = await kv.zrange('leaderboard', 0, limit - 1, { rev: true });
+    const members = await redis.zrange('leaderboard', 0, limit - 1, { rev: true });
     const scores = (members || []).map(m => {
       try { return JSON.parse(m); } catch { return null; }
     }).filter(Boolean);
@@ -33,10 +34,10 @@ export default async function handler(req, res) {
 
     // Embed all display data in the member so GET doesn't need WITHSCORES
     const member = JSON.stringify({ n: safeName, s: safeScore, d: miles, t: Date.now() });
-    await kv.zadd('leaderboard', { score: safeScore, member });
+    await redis.zadd('leaderboard', { score: safeScore, member });
 
     // Trim to top 100
-    await kv.zremrangebyrank('leaderboard', 0, -101);
+    await redis.zremrangebyrank('leaderboard', 0, -101);
 
     return res.json({ ok: true });
   }

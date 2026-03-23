@@ -1,6 +1,7 @@
 // api/session.js — Called when a game session starts
 // Logs unique IPs, geo data (from Vercel's built-in headers), and user agent.
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
+const redis = Redis.fromEnv();
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -25,21 +26,16 @@ export default async function handler(req, res) {
 
   await Promise.all([
     // Track unique IP
-    kv.sadd('unique_ips', ip),
+    redis.sadd('unique_ips', ip),
 
     // Store/update IP detail record
-    kv.hset(`ip:${ip}`, {
-      country, region, city, lat, lon,
-      ua,
-      last_seen: now,
-      // Only set first_seen if key doesn't exist yet
-    }),
+    redis.hset(`ip:${ip}`, { country, region, city, lat, lon, ua, last_seen: now }),
 
-    // Set first_seen only on first visit (HSETNX = set if not exists)
-    kv.hsetnx(`ip:${ip}`, 'first_seen', now),
+    // Set first_seen only on first visit
+    redis.hsetnx(`ip:${ip}`, 'first_seen', now),
 
     // Increment global session counter
-    kv.hincrby('gstats', 'sessions', 1),
+    redis.hincrby('gstats', 'sessions', 1),
   ]);
 
   return res.json({ ok: true });

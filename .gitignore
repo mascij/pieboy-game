@@ -6,3 +6,5 @@ package-lock.json
 index.old
 start-game.bat
 *.bat
+
+.vercel
