@@ -1863,10 +1863,13 @@ async function _fetchLeaderboard() {
     if(!scores || !scores.length) { el.innerHTML = '<div style="color:#888">No scores yet — be the first!</div>'; return; }
     el.innerHTML = scores.map((e, i) => {
       const medal = i < 3 ? MEDALS_WEB[i] : `${i+1}.`;
-      const dist  = e.distance ? `${parseFloat(e.distance).toFixed(1)} mi` : '';
+      // API returns compact keys: n=name, s=score, d=distance
+      const name  = e.n || e.name || '';
+      const score = e.s ?? e.score ?? 0;
+      const dist  = (e.d || e.distance) ? `${parseFloat(e.d || e.distance).toFixed(1)} mi` : '';
       return `<div class="lb-row">
-        <span class="lb-name">${medal} ${(e.name||'').substring(0,14)}</span>
-        <span class="lb-score">${(e.score||0).toLocaleString()}</span>
+        <span class="lb-name">${medal} ${name.substring(0,14)}</span>
+        <span class="lb-score">${score.toLocaleString()}</span>
         <span class="lb-dist">${dist}</span>
       </div>`;
     }).join('');
